@@ -48,7 +48,6 @@ async def handle_sse(request):
     log_prefix = f"[SSE {client_host}:{client_port}]"
     logger.info(f"{log_prefix} New SSE connection request from {client_host}:{client_port}")
 
-    # transport = SseServerTransport(endpoint=mcp_server) # Old incorrect line
     try:
         logger.debug(f"{log_prefix} Setting up SSE connection")
         # connect_sse handles the SSE handshake and provides streams
@@ -66,8 +65,8 @@ async def handle_sse(request):
             
             # Call run() on the underlying server instance, passing streams and options
             await underlying_server.run(
-                read_stream=streams[0], 
-                write_stream=streams[1],
+                read_stream=read_stream, 
+                write_stream=write_stream,
                 initialization_options=init_options
             )
             logger.info(f"{log_prefix} MCP session finished.")

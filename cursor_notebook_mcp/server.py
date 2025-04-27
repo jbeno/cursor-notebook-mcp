@@ -231,10 +231,10 @@ def main():
         config = ServerConfig(args)
     except (SystemExit, ValueError) as e:
         print(f"ERROR: Configuration failed: {e}", file=sys.stderr)
-        sys.exit(e.code if isinstance(e, SystemExit) else 1)
+        return sys.exit(e.code if isinstance(e, SystemExit) else 1)
     except Exception as e:
         print(f"CRITICAL: Failed during argument parsing or validation: {e}", file=sys.stderr)
-        sys.exit(1)
+        return sys.exit(1)
 
     try:
         setup_logging(config.log_dir, config.log_level)
@@ -243,7 +243,11 @@ def main():
         print(f"CRITICAL: Failed during logging setup: {e}", file=sys.stderr)
         logging.basicConfig(level=logging.ERROR)
         logging.exception("Logging setup failed critically")
-        sys.exit(1)
+        return sys.exit(1)
+
+    # Set a default logger if it's still None to prevent NoneType errors
+    if logger is None:
+        logger = logging.getLogger(__name__)
 
     logger.info(f"Notebook MCP Server starting (Version: {config.version}) - via {__name__}")
     logger.info(f"Allowed Roots: {config.allowed_roots}")
@@ -258,7 +262,7 @@ def main():
         logger.info("Notebook tools initialized and registered.")
     except Exception as e:
         logger.exception("Failed to initialize MCP server or tools.")
-        sys.exit(1)
+        return sys.exit(1)
 
     try:
         if config.transport == 'stdio':
@@ -272,19 +276,19 @@ def main():
                 run_sse_server(mcp_server, config)
             except ImportError as e:
                 logger.error(f"Failed to start SSE server due to missing packages: {e}")
-                sys.exit(1)
+                return sys.exit(1)
             except Exception as e:
                 logger.exception("Failed to start or run SSE server.")
-                sys.exit(1)
+                return sys.exit(1)
             logger.info("Server finished (SSE).")
             
         else:
             logger.error(f"Internal Error: Invalid transport specified: {config.transport}")
-            sys.exit(1)
+            return sys.exit(1)
             
     except Exception as e:
         logger.exception("Server encountered a fatal error during execution.")
-        sys.exit(1)
+        return sys.exit(1)
 
 # If this script is run directly (e.g., python -m cursor_notebook_mcp.server)
 if __name__ == "__main__":

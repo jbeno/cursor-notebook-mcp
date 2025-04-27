@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2025-04-26
+
+### Added
+
+- Added tools to get an outline and search a notebook, so specific cells can be targeted for read/edit.
+- The `notebook_get_outline` method analyzes a Jupyter notebook's structure, extracting cell types, line counts, and outlines for code and markdown cells.
+- The `notebook_search` method allows for case-insensitive searching within notebook cells, returning matches with context snippets.
+- Added dedicated tests for error paths and edge cases in the NotebookTools module, focusing on improving code coverage.
+- Added tests for handling issues with `diagnose_imports`, including subprocess errors and malformed JSON.
+- Added validation tests for notebooks addressing invalid JSON and non-notebook files.
+- Added tests for outline extraction with invalid code syntax.
+- Added tests for empty search queries and behavior of large file truncation.
+- Added edge case tests for export functionality and cell transformations.
+
+### Changed
+- Improved overall code coverage to 84%.
+- Improved `tools.py` coverage to 80%.
+- Achieved 100% coverage for `notebook_ops.py`.
+
 ## [0.2.3] - 2025-04-20
 
 ### Added

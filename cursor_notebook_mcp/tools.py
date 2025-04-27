@@ -17,9 +17,6 @@ import re
 import nbformat
 from nbformat import NotebookNode
 
-# Assuming ServerConfig is defined elsewhere (e.g., in the main server script)
-# from notebook_mcp_server import ServerConfig
-# Assuming notebook_ops functions are available
 from . import notebook_ops
 
 logger = logging.getLogger(__name__)
@@ -69,7 +66,7 @@ class NotebookTools:
             self.notebook_clear_cell_outputs,
             self.notebook_clear_all_outputs,
             self.notebook_move_cell,
-            self.diagnose_imports, # Keep diagnostic tool
+            self.diagnose_imports,
             self.notebook_validate,
             self.notebook_get_info,
             self.notebook_read_cell_output,
@@ -1156,17 +1153,15 @@ class NotebookTools:
             for line in lines:
                 stripped_line = line.strip()
                 # Check for Markdown heading first
-                md_match = re.match(r'^(#+)\s+(.*)', stripped_line)
+                md_match = re.match(r'^(#+)\s*(.*)', stripped_line) # Allow zero spaces after #
                 if md_match:
                     level = len(md_match.group(1))
                     heading_text = md_match.group(2).strip()
                     if heading_text:
                         headings.append(f"H{level}: {heading_text}")
                 else:
-                    # If not Markdown, check for HTML heading
-                    # We search the stripped_line instead of match to find tag anywhere
-                    html_match = html_heading_re.search(stripped_line)
-                    if html_match:
+                    # If not Markdown, check for HTML headings using finditer for multiple matches per line
+                    for html_match in html_heading_re.finditer(stripped_line):
                         level = int(html_match.group(1))
                         # Basic cleanup: remove potential inner tags for outline brevity
                         heading_text = re.sub(r'<.*?>', '', html_match.group(2)).strip()

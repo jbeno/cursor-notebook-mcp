@@ -126,4 +126,130 @@ def test_setup_logging_filehandler_error(mock_stderr, mock_filehandler, mock_mak
     assert "Could not set up file logging" in mock_stderr.getvalue()
     assert "Cannot open log file for writing" in mock_stderr.getvalue()
 
-# TODO: Add more tests here
+# --- Additional Tests for notebook_ops.py Coverage ---
+
+def test_is_path_allowed_empty_roots():
+    """Test is_path_allowed behavior with empty allowed_roots list."""
+    test_path = "/some/path"
+    allowed_roots = []
+    
+    # Function should return False if no roots are configured
+    assert not notebook_ops.is_path_allowed(test_path, allowed_roots)
+
+def test_is_path_allowed_path_resolve_error():
+    """Test is_path_allowed behavior when path resolution fails."""
+    with mock.patch('os.path.realpath', side_effect=Exception("Path resolution error")):
+        test_path = "/some/path"
+        allowed_roots = ["/allowed/root"]
+        
+        # Function should return False if path resolution fails
+        assert not notebook_ops.is_path_allowed(test_path, allowed_roots)
+
+def test_is_path_allowed_root_resolve_error():
+    """Test is_path_allowed behavior when allowed root resolution fails."""
+    # First call returns successfully, second call raises exception
+    def mock_realpath(path):
+        if path == "/some/path":
+            return "/some/path"
+        raise Exception("Root resolution error")
+    
+    with mock.patch('os.path.realpath', side_effect=mock_realpath):
+        test_path = "/some/path"
+        allowed_roots = ["/allowed/root"]
+        
+        # Function should continue to the next root and return False
+        assert not notebook_ops.is_path_allowed(test_path, allowed_roots)
+
+@pytest.mark.asyncio
+async def test_read_notebook_non_absolute_path():
+    """Test read_notebook rejects non-absolute paths."""
+    non_abs_path = "relative/path/notebook.ipynb"
+    allowed_roots = ["/valid/root"]
+    
+    with pytest.raises(ValueError, match="Invalid notebook path: Only absolute paths are allowed"):
+        await notebook_ops.read_notebook(non_abs_path, allowed_roots)
+
+@pytest.mark.asyncio
+async def test_read_notebook_outside_allowed_roots(tmp_path):
+    """Test read_notebook rejects paths outside allowed roots."""
+    dummy_path = "/some/path/outside/notebook.ipynb"
+    allowed_roots = [str(tmp_path)]
+    
+    with pytest.raises(PermissionError, match="Access denied: Path .* is outside the allowed workspace roots"):
+        await notebook_ops.read_notebook(dummy_path, allowed_roots)
+
+@pytest.mark.asyncio
+async def test_read_notebook_invalid_extension(tmp_path):
+    """Test read_notebook rejects non-notebook files."""
+    dummy_path = tmp_path / "not_a_notebook.txt"
+    dummy_path.touch()
+    allowed_roots = [str(tmp_path)]
+    
+    with pytest.raises(ValueError, match="Invalid file type: .* must point to a .ipynb file"):
+        await notebook_ops.read_notebook(str(dummy_path), allowed_roots)
+
+@pytest.mark.asyncio
+async def test_write_notebook_non_absolute_path():
+    """Test write_notebook rejects non-absolute paths."""
+    non_abs_path = "relative/path/notebook.ipynb"
+    allowed_roots = ["/valid/root"]
+    nb = nbformat.v4.new_notebook()
+    
+    with pytest.raises(ValueError, match="Invalid notebook path: Only absolute paths are allowed for writing"):
+        await notebook_ops.write_notebook(non_abs_path, nb, allowed_roots)
+
+@pytest.mark.asyncio
+async def test_write_notebook_outside_allowed_roots(tmp_path):
+    """Test write_notebook rejects paths outside allowed roots."""
+    dummy_path = "/some/path/outside/notebook.ipynb"
+    allowed_roots = [str(tmp_path)]
+    nb = nbformat.v4.new_notebook()
+    
+    with pytest.raises(PermissionError, match="Access denied: Path .* is outside the allowed workspace roots"):
+        await notebook_ops.write_notebook(dummy_path, nb, allowed_roots)
+
+@pytest.mark.asyncio
+async def test_write_notebook_invalid_extension(tmp_path):
+    """Test write_notebook rejects non-notebook files."""
+    dummy_path = str(tmp_path / "not_a_notebook.txt")
+    allowed_roots = [str(tmp_path)]
+    nb = nbformat.v4.new_notebook()
+    
+    with pytest.raises(ValueError, match="Invalid file type for writing: .* must point to a .ipynb file"):
+        await notebook_ops.write_notebook(dummy_path, nb, allowed_roots)
+
+@pytest.mark.asyncio
+async def test_write_notebook_create_parent_dir(tmp_path):
+    """Test write_notebook creates parent directory."""
+    parent_dir = tmp_path / "nested" / "dir"
+    dummy_path = parent_dir / "notebook.ipynb"
+    allowed_roots = [str(tmp_path)]
+    nb = nbformat.v4.new_notebook()
+    
+    # Ensure the parent directory doesn't exist yet
+    assert not parent_dir.exists()
+    
+    # Mock the directory creation and nbformat.write to verify they're called
+    with mock.patch('os.path.isdir', return_value=False), \
+         mock.patch('os.makedirs') as mock_makedirs, \
+         mock.patch('nbformat.write') as mock_write:
+        
+        await notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots)
+        
+        mock_makedirs.assert_called_once_with(str(parent_dir), exist_ok=True)
+        mock_write.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_write_notebook_parent_dir_creation_fails(tmp_path):
+    """Test write_notebook handles error during parent directory creation."""
+    parent_dir = tmp_path / "nested" / "dir"
+    dummy_path = parent_dir / "notebook.ipynb"
+    allowed_roots = [str(tmp_path)]
+    nb = nbformat.v4.new_notebook()
+    
+    # Mock directory checks and creation to simulate failure
+    with mock.patch('os.path.isdir', return_value=False), \
+         mock.patch('os.makedirs', side_effect=OSError("Failed to create directory")):
+        
+        with pytest.raises(IOError, match="Could not create directory for notebook .* Failed to create directory"):
+            await notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots)

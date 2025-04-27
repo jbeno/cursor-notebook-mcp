@@ -26,7 +26,10 @@ This MCP server uses the `nbformat` library to safely manipulate notebook struct
 
 ## Latest Version
 
-**Current Version:** `0.2.3` - See the [CHANGELOG.md](CHANGELOG.md) for details on recent changes.
+**Current Version:** `0.2.4` - See the [CHANGELOG.md](CHANGELOG.md) for details on recent changes. Two new tools were added that make it easier to work with large notebooks:
+
+- `notebook_get_outline` analyzes a Jupyter notebook's structure, extracting cell types, line counts, and headings/functions/classes. It then returns an outline the agent can reference.
+- `notebook_search` enables case-insensitive searching within notebook cells. The results show which cell the match was found, and include contextual snippets. This helps the agent know which cell to read/edit when asked to modify something.
 
 ## Features
 
@@ -56,6 +59,8 @@ Exposes the following MCP tools (registered under the `notebook_mcp` server):
 *   `notebook_validate`: Validates the notebook structure against the `nbformat` schema.
 *   `notebook_get_info`: Retrieves general information (cell count, metadata, kernel, language info).
 *   `notebook_export`: Exports the notebook to another format (e.g., python, html) using nbconvert. **Note:** See External Dependencies below for requirements needed for certain export formats like PDF.
+* `notebook_get_outline`: Produces an outline showing cell numbers with major headings/functions and line counts to make it easier for the agent to navigate a large notebook.
+* `notebook_search`: Searches cells for a keyword, showing which cell matches were found with contextual snippets. This helps the agent know which cell to read/edit when asked to modify something.
 
 ## Requirements
 
@@ -63,7 +68,7 @@ This project has both Python package dependencies and potentially external syste
 
 ### Python Dependencies
 
-*   **Python Version:** 3.9+
+*   **Python Version:** 3.10+
 *   **Core:** `mcp>=0.1.0`, `nbformat>=5.0`, `nbconvert>=6.0`, `ipython`, `jupyter_core`. These are installed automatically when you install `cursor-notebook-mcp`.
 *   **Optional - SSE Transport:** `uvicorn>=0.20.0`, `starlette>=0.25.0`. Needed only if using the SSE transport mode. Install via `pip install cursor-notebook-mcp[sse]`.
 *   **Optional - Development/Testing:** `pytest>=7.0`, `pytest-asyncio>=0.18`, `pytest-cov`, `coveralls`. Install via `pip install -e ".[dev]"` from source checkout.
@@ -230,7 +235,7 @@ When using `sse`, you must run the server process manually first (see "Running t
 For smooth collaboration with the AI agent on Jupyter Notebooks, you might want to add rules like these to your Cursor configuration. Go to Cursor Settings > Rules and add them in either User Roles or Project Rules. This ensures that Cursor's AI features will consistently follow these best practices when working with Jupyter notebooks.
 
 ```markdown 
-### Jupyter Notebook Rules for Cursor (Using notebook_mcp):
+### Jupyter Notebook Rules (Using notebook_mcp):
 
 1.  **Tool Usage:**
     *   Always use the tools provided by the `notebook_mcp` server for operations on Jupyter Notebook (`.ipynb`) files.
@@ -238,11 +243,11 @@ For smooth collaboration with the AI agent on Jupyter Notebooks, you might want 
 
 2.  **Investigation Strategy:**
     *   A comprehensive suite of tools is available to inspect notebooks. If the user mentions an issue, a specific cell, or asks for a modification, first attempt to gather context independently.
-    *   Use the available tools (`notebook_read`, `notebook_read_cell`, `notebook_get_info`, `notebook_read_metadata`, `notebook_read_cell_output`, `notebook_validate`) to examine the notebook structure, content, metadata, and outputs to locate the relevant context or identify the problem.
+    *   Use the available tools (`notebook_get_outline`, `notebook_search`, `notebook_read`, `notebook_read_cell`, `notebook_get_info`, `notebook_read_metadata`, `notebook_read_cell_output`, `notebook_validate`) to examine the notebook structure, content, metadata, and outputs to locate the relevant context or identify the problem.
     *   Ask the user for clarification only if the necessary information cannot be determined after using the investigation tools.
 
 3.  **Available Tools:**
-    *   Be aware of the different categories of tools: File operations (`create`, `delete`, `rename`), Notebook/Cell Reading (`read`, `read_cell`, `get_cell_count`, `get_info`), Cell Manipulation (`add_cell`, `edit_cell`, `delete_cell`, `move_cell`, `change_cell_type`, `duplicate_cell`, `split_cell`, `merge_cells`), Metadata (`read/edit_metadata`, `read/edit_cell_metadata`), Outputs (`read_cell_output`, `clear_cell_outputs`, `clear_all_outputs`), and Utility (`validate`, `export`, `diagnose_imports`).
+    *   Be aware of the different categories of tools: Situation awareness (`notebook_get_outline`), Search (`notebook_search`), File operations (`create`, `delete`, `rename`), Notebook/Cell Reading (`read`, `read_cell`, `get_cell_count`, `get_info`), Cell Manipulation (`add_cell`, `edit_cell`, `delete_cell`, `move_cell`, `change_cell_type`, `duplicate_cell`, `split_cell`, `merge_cells`), Metadata (`read/edit_metadata`, `read/edit_cell_metadata`), Outputs (`read_cell_output`, `clear_cell_outputs`, `clear_all_outputs`), and Utility (`validate`, `export`, `diagnose_imports`).
 
 4.  **Math Notation:** For LaTeX in Markdown cells, use `$ ... $` for inline math and `$$ ... $$` for display math. Avoid `\( ... \)` and `\[ ... \]`.
 
