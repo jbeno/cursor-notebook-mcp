@@ -23,18 +23,31 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies using pip
-      # run: ~/.cargo/bin/uv pip install -e ".[dev]" # Use pip instead
-      # Use pip (standard method)
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Test with pytest
-      run: python -m pytest
-      env: # Set environment variable for the test step
+    - name: Run tests individually
+      env:
         JUPYTER_PLATFORM_DIRS: 1
-      # Pytest will use settings from pyproject.toml to run coverage
+        PYTHONASYNCIODBG: 0
+        PYTHONASYNCIODEBUG: 0
+        ASYNCIO_TASK_TIMEOUT_SEC: 5
+      run: |
+        # Remove any existing coverage data to ensure a clean run
+        rm -f .coverage .coverage.*
+        
+        # Run each test file separately with coverage, fail fast
+        for test_file in tests/test_*.py; do
+          echo "Running tests in $test_file"
+          python -m pytest "$test_file" --timeout=30 -v --cov=cursor_notebook_mcp --cov-append
+        done
+        
+        echo "All test batches completed."
+        # Optional: Generate a combined text report for the logs here if desired
+        # python -m coverage report 
+        # The .coverage file will be used by the Coveralls step
 
     - name: Upload coverage reports to Coveralls
       # This step requires COVERALLS_REPO_TOKEN to be set in GitHub secrets
