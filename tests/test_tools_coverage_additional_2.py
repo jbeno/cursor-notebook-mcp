@@ -262,7 +262,10 @@ async def test_notebook_search_no_results(notebook_tools, sample_notebook_path):
     
     # Verify that an empty result list is returned
     assert isinstance(result, list)
-    assert len(result) == 0
+    assert len(result) == 1
+    assert "message" in result[0]
+    assert "No matches found" in result[0]["message"]
+    assert "ThisTermWillNeverBeFoundInTheNotebook12345" in result[0]["message"] # Check if the query is in the message
 
 if __name__ == "__main__":
     pytest.main() 
