@@ -448,7 +448,9 @@ async def test_notebook_search_attribute_error(notebook_tools, sample_notebook_p
     
     # The method should handle the error and continue
     assert isinstance(result, list)
-    assert len(result) == 0  # No matches found
+    assert len(result) == 1
+    assert "message" in result[0]
+    assert "No matches found" in result[0]["message"]
 
 @pytest.mark.asyncio
 async def test_notebook_search_cell_error(notebook_tools, sample_notebook_path):
