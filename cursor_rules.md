@@ -8,7 +8,7 @@
 
 2. **Tool Usage:**
    * Always use `notebook_mcp` tools for `.ipynb` files, never `edit_file`.
-   * Verify changes after making them with `notebook_read_cell` or `notebook_read` (be efficient with tool calls).
+   * Verify changes after making them with `notebook_read_cell` or `notebook_read`.
 
 3. **Path Resolution for Notebooks:**
    * **Initial Step:** At the beginning of notebook operations, or if path ambiguity exists, call `notebook_get_server_path_context` (providing the current `project_directory`).
@@ -31,7 +31,7 @@
    * **Path & Server Context**: `notebook_get_server_path_context`
    * **Navigation & Discovery**: `notebook_get_outline`, `notebook_search`, `notebook_get_info`, `notebook_get_cell_count`
    * **File Operations**: `notebook_create`, `notebook_delete`, `notebook_rename`, `notebook_read`, `notebook_export`
-   * **Cell Operations**: `notebook_read_cell`, `notebook_add_cell`, `notebook_edit_cell`, `notebook_delete_cell`, `notebook_bulk_add_cells` (use bulk add when you need to add multiple cells at once)
+   * **Cell Operations**: `notebook_read_cell`, `notebook_add_cell`, `notebook_edit_cell`, `notebook_delete_cell`, `notebook_bulk_add_cells`
    * **Cell Transformations**: `notebook_change_cell_type`, `notebook_move_cell`, `notebook_split_cell`, `notebook_merge_cells`, `notebook_duplicate_cell`
    * **Metadata & Output**: `notebook_read_metadata`, `notebook_edit_metadata`, `notebook_read_cell_metadata`, `notebook_edit_cell_metadata`, `notebook_read_cell_output`, `notebook_edit_cell_output`, `notebook_clear_cell_outputs`, `notebook_clear_all_outputs`
    * **Validation**: `notebook_validate`

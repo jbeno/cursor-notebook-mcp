@@ -278,6 +278,39 @@ The following examples can be used for `~/.cursor/mcp.json` (global) or `.cursor
     ```
 *Note: For these `uv` examples, `/absolute/path/to/your/project/with/uv/venv` must be the correct absolute path to your project where `cursor-notebook-mcp` is installed within its `uv`-managed environment. The `--allow-root` path for notebooks should also be an absolute path for clarity and reliability. You can add other `cursor-notebook-mcp` arguments (like `--log-level DEBUG` or `--port 8889`) to the end of the `args` list for `cursor-notebook-mcp` or `python -m cursor_notebook_mcp.server` as needed.*
 
+## Cursor Rules for AI Guidance
+
+The package includes a `cursor_rules.md` file that helps calibrate the agent's behavior when working with Jupyter notebooks through the MCP server. These rules ensure consistent and clean notebook actions by providing guidelines for markdown formatting, tool usage, path resolution, and more.
+
+### Default Behavior: Visibility and Feedback
+
+By default, the rules are optimized for visibility into the AI's actions as it constructs or modifies notebooks. The AI will tend to use individual tool calls for operations like adding cells, which means you can see the notebook being built cell by cell. This provides good feedback and allows you to intervene quickly if needed. However, this approach results in more tool calls, which can impact costs when using paid AI services.
+
+### Configuring Rules in Cursor
+
+To use the cursor rules:
+
+1. Open Cursor
+2. Go to Cursor > Settings > Cursor Settings
+3. Click on "Rules" in the sidebar
+4. You can either:
+   * Click "Add new rule" under "Project Rules" to apply the rules only to the current project
+   * Add to "User Rules" to apply them globally
+
+### Optional: Cost-Efficient Mode
+
+If you're more concerned about cost-effectiveness and don't mind waiting to see results, you can add the following section to the rules:
+
+```markdown
+8. **Efficiency Mode (Cost Optimization):**
+   * Minimize tool calls as they incur API costs.
+   * Use `notebook_bulk_add_cells` instead of multiple `notebook_add_cell` calls when adding multiple cells.
+   * Use `notebook_read` to get the full notebook state instead of reading individual cells.
+   * Only use `notebook_read_cell` when you need to verify a specific cell's content.
+   * Batch related changes together when possible.
+   * Skip verification reads if the operation is simple and unlikely to fail.
+```
+
 ## Editing Remote Notebooks via SFTP/SSH
 
 This server supports accessing and editing Jupyter notebooks stored on remote servers via SFTP (SSH File Transfer Protocol). This allows you to work on notebooks as if they were local, provided you have SSH access to the remote machine and SFTP is enabled on it.
