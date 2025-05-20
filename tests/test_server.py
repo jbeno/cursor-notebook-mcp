@@ -17,7 +17,7 @@ from cursor_notebook_mcp.server import ServerConfig, parse_arguments, setup_logg
 from cursor_notebook_mcp.tools import NotebookTools
 
 # Need to mock this import, so don't import it directly at the module level
-# from mcp.server.fastmcp import FastMCP
+# from fastmcp import FastMCP
 
 # Removed pytestmark = pytest.mark.asyncio as these tests are synchronous
 # pytestmark = pytest.mark.asyncio
@@ -77,49 +77,100 @@ def test_parse_arguments_log_dir_is_file(tmp_path):
 # --- ServerConfig Tests ---
 
 def test_server_config_valid(tmp_path):
-    """Test ServerConfig initialization with valid arguments."""
-    valid_root = str(tmp_path.resolve())
+    """Test creating ServerConfig with valid arguments."""
     args = argparse.Namespace(
-        allow_root=[valid_root],
+        allow_root=[str(tmp_path)],
         log_dir=str(tmp_path / "logs"),
-        log_level='DEBUG', log_level_int=logging.DEBUG,
-        max_cell_source_size=1000, max_cell_output_size=500,
-        transport='stdio', host='localhost', port=8000
+        log_level_int=logging.DEBUG,
+        max_cell_source_size=1024,
+        max_cell_output_size=2048,
+        transport='sse',
+        host='localhost',
+        port=9999,
+        # Add SFTP defaults
+        sftp_root=None,
+        sftp_password=None,
+        sftp_key=None,
+        sftp_port=22,
+        sftp_no_interactive=False,
+        sftp_no_agent=False,
+        sftp_no_password_prompt=False,
+        sftp_auth_mode='auto'
     )
     config = ServerConfig(args)
-    assert config.allowed_roots == [valid_root]
-    assert config.log_level == logging.DEBUG
-    assert config.max_cell_source_size == 1000
+    assert config.allowed_roots == [str(tmp_path)]
+    assert config.max_cell_source_size == 1024
+    assert config.transport == 'sse'
+    assert config.port == 9999
 
-def test_server_config_allow_root_not_absolute():
-    """Test ServerConfig rejects non-absolute --allow-root."""
-    args = argparse.Namespace(allow_root=["relative/path"], log_dir='/tmp', log_level_int=logging.INFO, max_cell_source_size=1, max_cell_output_size=1, transport='stdio', host='', port=0)
-    with pytest.raises(ValueError, match="--allow-root path must be absolute"):
-        ServerConfig(args)
+def test_server_config_invalid_root(tmp_path):
+    """Test ServerConfig raises error for invalid allow_root."""
+    non_existent_path = str(tmp_path / "non_existent")
+    relative_path = "some/relative/path"
+    args_non_existent = argparse.Namespace(
+        allow_root=[non_existent_path],
+        log_dir=str(tmp_path / "logs"), log_level_int=logging.INFO,
+        max_cell_source_size=1, max_cell_output_size=1,
+        transport='stdio', host='127.0.0.1', port=8080,
+        # Add SFTP defaults
+        sftp_root=None, sftp_password=None, sftp_key=None, sftp_port=22,
+        sftp_no_interactive=False, sftp_no_agent=False, sftp_no_password_prompt=False,
+        sftp_auth_mode='auto'
+    )
+    args_relative = argparse.Namespace(
+        allow_root=[relative_path],
+        log_dir=str(tmp_path / "logs"), log_level_int=logging.INFO,
+        max_cell_source_size=1, max_cell_output_size=1,
+        transport='stdio', host='127.0.0.1', port=8080,
+        # Add SFTP defaults
+        sftp_root=None, sftp_password=None, sftp_key=None, sftp_port=22,
+        sftp_no_interactive=False, sftp_no_agent=False, sftp_no_password_prompt=False,
+        sftp_auth_mode='auto'
+    )
 
-def test_server_config_allow_root_not_dir(tmp_path):
-    """Test ServerConfig rejects non-existent --allow-root directory."""
-    non_existent_path = str(tmp_path / "non_existent_dir")
-    args = argparse.Namespace(allow_root=[non_existent_path], log_dir='/tmp', log_level_int=logging.INFO, max_cell_source_size=1, max_cell_output_size=1, transport='stdio', host='', port=0)
-    with pytest.raises(ValueError, match="--allow-root path must be an existing directory"):
+    with pytest.raises(ValueError, match="must be an existing directory"):
+        ServerConfig(args_non_existent)
+    with pytest.raises(ValueError, match="must be absolute"):
+        ServerConfig(args_relative)
+
+def test_server_config_no_root():
+    """Test ServerConfig raises error if no roots are provided."""
+    args = argparse.Namespace(
+        allow_root=None, # No local root
+        log_dir=".", log_level_int=logging.INFO,
+        max_cell_source_size=1, max_cell_output_size=1,
+        transport='stdio', host='127.0.0.1', port=8080,
+        # Add SFTP defaults (also None)
+        sftp_root=None, sftp_password=None, sftp_key=None, sftp_port=22,
+        sftp_no_interactive=False, sftp_no_agent=False, sftp_no_password_prompt=False,
+        sftp_auth_mode='auto'
+    )
+    with pytest.raises(ValueError, match="No valid allowed roots"):
         ServerConfig(args)
 
 def test_server_config_invalid_size_limits(tmp_path):
-    """Test ServerConfig rejects negative size limits."""
-    valid_root = str(tmp_path.resolve())
-    args_base = dict(
-        allow_root=[valid_root], log_dir='/tmp', log_level_int=logging.INFO,
-        transport='stdio', host='', port=0
+    """Test ServerConfig raises error for negative size limits."""
+    args_neg_source = argparse.Namespace(
+        allow_root=[str(tmp_path)], log_dir=".", log_level_int=logging.INFO,
+        max_cell_source_size=-1, max_cell_output_size=1024,
+        transport='stdio', host='127.0.0.1', port=8080,
+        # Add SFTP defaults
+        sftp_root=None, sftp_password=None, sftp_key=None, sftp_port=22,
+        sftp_no_interactive=False, sftp_no_agent=False, sftp_no_password_prompt=False,
+        sftp_auth_mode='auto'
     )
-    
-    # Test negative source size
-    args_neg_source = argparse.Namespace(**args_base, max_cell_source_size=-1, max_cell_output_size=100)
-    with pytest.raises(ValueError, match="--max-cell-source-size must be non-negative"):
+    args_neg_output = argparse.Namespace(
+        allow_root=[str(tmp_path)], log_dir=".", log_level_int=logging.INFO,
+        max_cell_source_size=1024, max_cell_output_size=-1,
+        transport='stdio', host='127.0.0.1', port=8080,
+        # Add SFTP defaults
+        sftp_root=None, sftp_password=None, sftp_key=None, sftp_port=22,
+        sftp_no_interactive=False, sftp_no_agent=False, sftp_no_password_prompt=False,
+        sftp_auth_mode='auto'
+    )
+    with pytest.raises(ValueError, match="must be non-negative"):
         ServerConfig(args_neg_source)
-        
-    # Test negative output size
-    args_neg_output = argparse.Namespace(**args_base, max_cell_source_size=100, max_cell_output_size=-1)
-    with pytest.raises(ValueError, match="--max-cell-output-size must be non-negative"):
+    with pytest.raises(ValueError, match="must be non-negative"):
         ServerConfig(args_neg_output)
 
 # --- setup_logging Tests ---
@@ -300,50 +351,49 @@ def test_main_successful_stdio_run(mock_exit):
         
         # Set up mock returns
         mock_args = mock.MagicMock()
+        mock_args.log_dir = '/mock/log/dir' 
+        mock_args.log_level_int = logging.INFO 
         mock_args.allow_root = ['/tmp']
-        mock_args.log_level_int = logging.INFO
         mock_args.max_cell_source_size = 1000
         mock_args.max_cell_output_size = 1000
         mock_args.transport = 'stdio'
+        mock_args.sftp_root = None
+        mock_args.sftp_password = None
+        mock_args.sftp_key = None
+        mock_args.sftp_port = 22
+        mock_args.sftp_no_interactive = False
+        mock_args.sftp_no_agent = False
+        mock_args.sftp_no_password_prompt = False
+        mock_args.sftp_auth_mode = 'auto'
         mock_parse_args.return_value = mock_args
         
         mock_config = mock.MagicMock()
         mock_config.allowed_roots = ['/tmp']
-        mock_config.log_level = logging.INFO
         mock_config.transport = 'stdio'
-        mock_config.version = '0.2.3'
+        mock_config.version = '0.2.3' 
+        mock_config.sftp_manager = None
         mock_server_config.return_value = mock_config
         
-        # Mock the logger before FastMCP.run() is called to prevent actual execution
         mock_logger = mock.MagicMock()
         mock_get_logger.return_value = mock_logger
         
-        # Create a mock MCP server instance
         mock_mcp_instance = mock.MagicMock()
         mock_fast_mcp.return_value = mock_mcp_instance
-        
-        # Make run() method raise SystemExit to stop execution
         mock_mcp_instance.run.side_effect = SystemExit(0)
-        
-        # Mock exit to prevent actual exit during test
         mock_exit.return_value = None
         
-        # Call main function
         try:
             main()
         except SystemExit:
-            pass  # We expect SystemExit to be raised by mock_mcp_instance.run
+            pass
         
-        # Verify all expected calls
         mock_parse_args.assert_called_once()
+        mock_setup_logging.assert_called_once_with(mock_args.log_dir, mock_args.log_level_int)
         mock_server_config.assert_called_once_with(mock_args)
-        mock_setup_logging.assert_called_once_with(mock_config.log_dir, mock_config.log_level)
         mock_fast_mcp.assert_called_once_with("notebook_mcp")
         mock_notebook_tools.assert_called_once_with(mock_config, mock_mcp_instance)
         mock_mcp_instance.run.assert_called_once_with(transport='stdio')
         
-        # Verify logging calls
-        assert mock_logger.info.call_count >= 3  # At least 3 info log calls
         mock_logger.info.assert_any_call(f"Notebook MCP Server starting (Version: {mock_config.version}) - via {server.__name__}")
         mock_logger.info.assert_any_call(f"Allowed Roots: {mock_config.allowed_roots}")
         mock_logger.info.assert_any_call(f"Transport Mode: {mock_config.transport}")
@@ -388,32 +438,38 @@ def test_main_system_exit_during_parsing(mock_exit, mock_stderr):
 @mock.patch('sys.exit')
 def test_main_logging_setup_error(mock_exit, mock_stderr):
     """Test main() handles errors during logging setup."""
-    # Mock parse_arguments and ServerConfig to succeed but setup_logging to fail
     with mock.patch('cursor_notebook_mcp.server.parse_arguments') as mock_parse_args, \
          mock.patch('cursor_notebook_mcp.server.ServerConfig') as mock_server_config, \
          mock.patch('cursor_notebook_mcp.server.setup_logging', side_effect=Exception("Logging setup failed")), \
          mock.patch('logging.basicConfig') as mock_basic_config, \
          mock.patch('logging.exception') as mock_log_exception:
         
-        # Set up mock returns
         mock_args = mock.MagicMock()
+        mock_args.log_dir = '/tmp/logs' # Define log_dir on args
+        mock_args.log_level_int = logging.INFO # Define log_level_int on args
+        # Add SFTP defaults so ServerConfig doesn't fail if it *were* called
+        mock_args.sftp_root = None
+        mock_args.sftp_password = None
+        mock_args.sftp_key = None
+        mock_args.sftp_port = 22
+        mock_args.sftp_no_interactive = False
+        mock_args.sftp_no_agent = False
+        mock_args.sftp_no_password_prompt = False
+        mock_args.sftp_auth_mode = 'auto'
         mock_parse_args.return_value = mock_args
         
-        mock_config = mock.MagicMock()
-        mock_config.log_dir = '/tmp/logs'
-        mock_config.log_level = logging.INFO
-        mock_server_config.return_value = mock_config
+        # mock_server_config might be called depending on exact failure point
+        # Let's assume parse_arguments succeeded but setup_logging failed
         
-        # Mock exit to prevent actual exit during test
-        mock_exit.return_value = None  # Needed to handle return sys.exit(1)
+        mock_exit.return_value = None
         
-        # Call main
         main()
         
-        # Verify error handling
-        assert "CRITICAL: Failed during logging setup: Logging setup failed" in mock_stderr.getvalue()
+        assert "CRITICAL: Failed during argument parsing or validation: Logging setup failed" in mock_stderr.getvalue()
+        # Basic config should be called as a fallback
         mock_basic_config.assert_called_with(level=logging.ERROR)
-        mock_log_exception.assert_called_with("Logging setup failed critically")
+        # *** CORRECT: Assert the message logged in the relevant except block ***
+        mock_log_exception.assert_called_with("Critical failure during initial setup")
         mock_exit.assert_called_once_with(1)
 
 @mock.patch('sys.exit')
@@ -457,67 +513,130 @@ def test_main_tools_init_error(mock_exit):
 @mock.patch('sys.exit')
 def test_main_sse_transport_import_error(mock_exit):
     """Test main() handles ImportError when SSE transport is selected."""
-    # Mock everything up to the SSE server run to succeed, but run_sse_server to raise ImportError
+    # Mock everything up to the SSE server run to succeed, but mcp_server.run to raise ImportError
     with mock.patch('cursor_notebook_mcp.server.parse_arguments') as mock_parse_args, \
          mock.patch('cursor_notebook_mcp.server.ServerConfig') as mock_server_config, \
          mock.patch('cursor_notebook_mcp.server.setup_logging') as mock_setup_logging, \
          mock.patch('cursor_notebook_mcp.server.FastMCP') as mock_fast_mcp, \
          mock.patch('cursor_notebook_mcp.server.NotebookTools') as mock_notebook_tools, \
-         mock.patch('cursor_notebook_mcp.server.run_sse_server', side_effect=ImportError("Missing SSE packages")), \
-         mock.patch('logging.getLogger') as mock_get_logger:
+         mock.patch('logging.getLogger') as mock_get_logger: # Removed run_sse_server mock
         
-        # Set up mock returns
+        # Set up mock returns for parse_arguments
         mock_args = mock.MagicMock()
+        mock_args.log_dir = '/mock/log/dir_sse_import_error'
+        mock_args.log_level_int = logging.INFO
+        mock_args.allow_root = ['/tmp_sse_import_error']
+        mock_args.max_cell_source_size = 1000
+        mock_args.max_cell_output_size = 1000
+        mock_args.transport = 'sse' # Critical for this test
+        mock_args.host = '127.0.0.1' # For ServerConfig if it uses it
+        mock_args.port = 8080      # For ServerConfig if it uses it
+        mock_args.sftp_root = None
+        mock_args.sftp_password = None
+        mock_args.sftp_key = None
+        mock_args.sftp_port = 22
+        mock_args.sftp_no_interactive = False
+        mock_args.sftp_no_agent = False
+        mock_args.sftp_no_password_prompt = False
+        mock_args.sftp_auth_mode = 'auto'
         mock_parse_args.return_value = mock_args
         
+        # Set up mock returns for ServerConfig
         mock_config = mock.MagicMock()
         mock_config.transport = 'sse'  # Use SSE transport
+        mock_config.allowed_roots = ['/tmp_sse_import_error']
+        mock_config.version = '0.2.3_test'
+        mock_config.sftp_manager = None # Important for the finally block in main()
+        mock_config.host = '127.0.0.1' # Needed for mcp_server.run(transport='sse')
+        mock_config.port = 8080       # Needed for mcp_server.run(transport='sse')
+        mock_config.log_level = logging.INFO # Needed for mcp_server.run(transport='sse')
         mock_server_config.return_value = mock_config
         
         mock_logger = mock.MagicMock()
         mock_get_logger.return_value = mock_logger
         
-        # Mock exit to prevent actual exit during test
-        mock_exit.return_value = None  # Needed to handle return sys.exit(1)
+        mock_mcp_instance = mock.MagicMock()
+        mock_fast_mcp.return_value = mock_mcp_instance
         
-        # Call main
+        # Configure mcp_instance.run to raise ImportError when transport is 'sse'
+        def run_side_effect(*args_run, **kwargs_run):
+            if kwargs_run.get('transport') == 'sse':
+                raise ImportError("Missing SSE packages")
+            # For other transports, or if called without transport, simulate normal exit or behavior
+            # In this test, only SSE path should be triggered leading to this mock.
+            return None 
+        mock_mcp_instance.run.side_effect = run_side_effect
+        
+        mock_exit.return_value = None
+        
         main()
         
         # Verify error handling
-        mock_logger.error.assert_called_with("Failed to start SSE server due to missing packages: Missing SSE packages")
+        mock_logger.error.assert_any_call("Failed to start SSE server due to missing packages: Missing SSE packages")
+        mock_logger.error.assert_any_call("Hint: SSE transport requires optional dependencies. Try: pip install \"fastmcp[http]\" (provides SSE dependencies too)")
         mock_exit.assert_called_once_with(1)
 
 @mock.patch('sys.exit')
 def test_main_sse_transport_generic_error(mock_exit):
     """Test main() handles generic error when running SSE transport."""
-    # Mock everything up to the SSE server run to succeed, but run_sse_server to raise generic Exception
+    # Mock everything up to the SSE server run to succeed, but mcp_server.run to raise generic Exception
     with mock.patch('cursor_notebook_mcp.server.parse_arguments') as mock_parse_args, \
          mock.patch('cursor_notebook_mcp.server.ServerConfig') as mock_server_config, \
          mock.patch('cursor_notebook_mcp.server.setup_logging') as mock_setup_logging, \
          mock.patch('cursor_notebook_mcp.server.FastMCP') as mock_fast_mcp, \
          mock.patch('cursor_notebook_mcp.server.NotebookTools') as mock_notebook_tools, \
-         mock.patch('cursor_notebook_mcp.server.run_sse_server', side_effect=Exception("SSE server failed")), \
-         mock.patch('logging.getLogger') as mock_get_logger:
+         mock.patch('logging.getLogger') as mock_get_logger: # Removed run_sse_server mock
         
-        # Set up mock returns
+        # Set up mock returns for parse_arguments
         mock_args = mock.MagicMock()
+        mock_args.log_dir = '/mock/log/dir_sse_generic_error'
+        mock_args.log_level_int = logging.INFO
+        mock_args.allow_root = ['/tmp_sse_generic_error']
+        mock_args.max_cell_source_size = 1000
+        mock_args.max_cell_output_size = 1000
+        mock_args.transport = 'sse' # Critical for this test
+        mock_args.host = '127.0.0.1'
+        mock_args.port = 8080
+        mock_args.sftp_root = None
+        mock_args.sftp_password = None
+        mock_args.sftp_key = None
+        mock_args.sftp_port = 22
+        mock_args.sftp_no_interactive = False
+        mock_args.sftp_no_agent = False
+        mock_args.sftp_no_password_prompt = False
+        mock_args.sftp_auth_mode = 'auto'
         mock_parse_args.return_value = mock_args
         
+        # Set up mock returns for ServerConfig
         mock_config = mock.MagicMock()
         mock_config.transport = 'sse'  # Use SSE transport
+        mock_config.allowed_roots = ['/tmp_sse_generic_error']
+        mock_config.version = '0.2.3_test'
+        mock_config.sftp_manager = None
+        mock_config.host = '127.0.0.1'
+        mock_config.port = 8080
+        mock_config.log_level = logging.INFO
         mock_server_config.return_value = mock_config
         
         mock_logger = mock.MagicMock()
         mock_get_logger.return_value = mock_logger
         
-        # Mock exit to prevent actual exit during test
-        mock_exit.return_value = None  # Needed to handle return sys.exit(1)
+        mock_mcp_instance = mock.MagicMock()
+        mock_fast_mcp.return_value = mock_mcp_instance
+
+        # Configure mcp_instance.run to raise Exception when transport is 'sse'
+        def run_side_effect(*args_run, **kwargs_run):
+            if kwargs_run.get('transport') == 'sse':
+                raise Exception("SSE server failed")
+            return None
+        mock_mcp_instance.run.side_effect = run_side_effect
         
-        # Call main
+        mock_exit.return_value = None
+        
         main()
         
         # Verify error handling
-        mock_logger.exception.assert_called_with("Failed to start or run SSE server.")
+        mock_logger.exception.assert_called_once_with("Failed to start or run FastMCP SSE server.")
         mock_exit.assert_called_once_with(1)
 
 @mock.patch('sys.exit')
@@ -549,7 +668,7 @@ def test_main_invalid_transport(mock_exit):
         main()
         
         # Verify error handling
-        mock_logger.error.assert_called_with(f"Internal Error: Invalid transport specified: {mock_config.transport}")
+        mock_logger.error.assert_called_with(f"Internal Error: Invalid transport specified in validated config: {mock_config.transport}")
         mock_exit.assert_called_once_with(1)
 
 @mock.patch('sys.exit')

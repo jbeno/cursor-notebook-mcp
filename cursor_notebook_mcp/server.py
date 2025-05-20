@@ -12,26 +12,30 @@ import argparse
 from typing import Any, List, Dict
 import logging
 import re # Import re for the filter
+import tempfile
+import getpass
 
 # --- Package-Internal Imports ---
 # Ensure these succeed when running as part of the package
 try:
     from .tools import NotebookTools
-    from .sse_transport import run_sse_server
+    from .sftp_manager import SFTPManager
 except ImportError as e:
     print(f"Error importing package components: {e}. Ensure package structure is correct.", file=sys.stderr)
     sys.exit(1)
 
 # --- External Dependencies ---
 try:
-    from mcp.server.fastmcp import FastMCP
+    from fastmcp import FastMCP
     import nbformat
+    # from fastmcp.server import run_http_server # No longer needed, FastMCP.run() handles it
 except ImportError as e:
     # This might occur if dependencies aren't installed correctly
-    print(f"FATAL: Failed to import required libraries (mcp, nbformat, etc.). Error: {e}", file=sys.stderr)
-    # Add hint about installing extras if it's an SSE component missing
-    if "SseServerTransport" in str(e) or "uvicorn" in str(e) or "starlette" in str(e):
-        print("Hint: SSE transport requires optional dependencies. Try installing with '[sse]' extra.", file=sys.stderr)
+    print(f"FATAL: Failed to import required libraries (mcp, nbformat, fastmcp, etc.). Error: {e}", file=sys.stderr)
+    # FastMCP's http transport might have its own dependencies, typically uvicorn and starlette.
+    # FastMCP bundles these if installed with 'http' extra: pip install fastmcp[http]
+    if "uvicorn" in str(e) or "starlette" in str(e):
+        print("Hint: HTTP transport requires optional dependencies. Try: pip install \"fastmcp[http]\"", file=sys.stderr)
     sys.exit(1)
 
 # --- Logging Setup ---
@@ -122,7 +126,9 @@ class ServerConfig:
     transport: str
     host: str
     port: int
-    version: str = "0.2.3" # Dynamic version injected at build time or read from __init__
+    sftp_manager: Any = None
+    raw_sftp_specs: List[str] = [] # Added to store original --sftp-root args
+    version: str = "0.3.0" # Dynamic version injected at build time or read from __init__
 
     def __init__(self, args: argparse.Namespace):
         self.log_dir = args.log_dir
@@ -139,6 +145,64 @@ class ServerConfig:
                 if not os.path.isdir(root):
                     raise ValueError(f"--allow-root path must be an existing directory: {root}")
                 validated_roots.append(os.path.realpath(root))
+                
+        # Handle SFTP remote roots if specified
+        self.sftp_manager = None
+        if args.sftp_root:
+            try:
+                # Initialize SFTP manager
+                self.sftp_manager = SFTPManager()
+                self.raw_sftp_specs = args.sftp_root # Store the original spec list
+                
+                # Process each remote path
+                for remote_spec in args.sftp_root:
+                    # Create a virtual local path to represent remote path
+                    local_virtual_path = os.path.join(
+                        tempfile.gettempdir(), 
+                        f"cursor_notebook_sftp_{abs(hash(remote_spec))}"
+                    )
+                    os.makedirs(local_virtual_path, exist_ok=True)
+                    
+                    # Add path mapping
+                    username, host, _ = self.sftp_manager.add_path_mapping(remote_spec, local_virtual_path)
+                    
+                    # Get password if needed
+                    password = None
+                    if args.sftp_password:
+                        password = args.sftp_password
+                    elif args.sftp_key is None and not args.sftp_no_interactive:
+                        # Only prompt if not using key file and interactive mode is enabled
+                        if args.sftp_no_password_prompt:
+                            # Skip the password prompt but still allow interactive auth
+                            # This is useful when using SSH agent or when 2FA is the only interactive part
+                            password = None
+                        else:
+                            # Prompt for password
+                            password = getpass.getpass(f"SSH password for {username}@{host}: ")
+                    
+                    # Establish connection
+                    if not self.sftp_manager.add_connection(
+                        host, 
+                        username, 
+                        password=password, 
+                        key_file=args.sftp_key,
+                        port=args.sftp_port,
+                        use_agent=not args.sftp_no_agent,
+                        interactive=not args.sftp_no_interactive,
+                        auth_mode=args.sftp_auth_mode
+                    ):
+                        raise ValueError(f"Failed to connect to {remote_spec}")
+                    
+                    # Add the virtual local path to allowed roots
+                    validated_roots.append(os.path.realpath(local_virtual_path))
+                    logging.info(f"Added virtual root mapping: {remote_spec} -> {local_virtual_path}")
+            except ImportError as e:
+                logging.error(f"Cannot use SFTP: {e}")
+                raise ValueError(f"SFTP support requires paramiko: {e}")
+                
+        if not validated_roots:
+            raise ValueError("No valid allowed roots (either local or remote) provided.")
+            
         self.allowed_roots = validated_roots
 
         if args.max_cell_source_size < 0:
@@ -159,7 +223,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--allow-root',
         action='append',
-        required=True,
+        required=False,  # Not required if SFTP root is provided
         metavar='DIR_PATH',
         help='Absolute path to a directory where notebooks are allowed. Can be used multiple times.'
     )
@@ -195,8 +259,8 @@ def parse_arguments() -> argparse.Namespace:
         '--transport',
         type=str,
         default='stdio',
-        choices=['stdio', 'sse'],
-        help='Transport type to use.'
+        choices=['stdio', 'streamable-http', 'sse'],
+        help='Transport type to use. "streamable-http" is recommended for web deployments; "sse" provides a deprecated two-endpoint SSE model.'
     )
     parser.add_argument(
         '--host',
@@ -212,11 +276,63 @@ def parse_arguments() -> argparse.Namespace:
         metavar='PORT_NUM',
         help='Port to bind the SSE server to (only used with --transport=sse).'
     )
+    
+    # SFTP connection arguments
+    sftp_group = parser.add_argument_group('SFTP Options')
+    sftp_group.add_argument(
+        '--sftp-root',
+        action='append',
+        metavar='USER@HOST:/PATH',
+        help='Remote path to access via SFTP. Format: user@host:/path. Can be used multiple times.'
+    )
+    sftp_group.add_argument(
+        '--sftp-password',
+        type=str,
+        help='SSH password for authentication (not recommended for security; prefer key-based auth).'
+    )
+    sftp_group.add_argument(
+        '--sftp-key',
+        type=str,
+        metavar='KEY_FILE',
+        help='SSH private key file for authentication.'
+    )
+    sftp_group.add_argument(
+        '--sftp-port',
+        type=int,
+        default=22,
+        help='SSH port for SFTP connections.'
+    )
+    sftp_group.add_argument(
+        '--sftp-no-interactive',
+        action='store_true',
+        help='Disable interactive authentication (2FA will not work with this flag).'
+    )
+    sftp_group.add_argument(
+        '--sftp-no-agent',
+        action='store_true',
+        help='Disable SSH agent authentication.'
+    )
+    sftp_group.add_argument(
+        '--sftp-no-password-prompt',
+        action='store_true',
+        help='Skip password prompt but allow other interactive auth (useful with SSH agent or 2FA-only).'
+    )
+    sftp_group.add_argument(
+        '--sftp-auth-mode',
+        choices=['auto', 'key', 'password', 'key+interactive', 'password+interactive', 'interactive'],
+        default='auto',
+        help='Authentication mode (default: auto)'
+    )
 
     args = parser.parse_args()
     args.log_level_int = getattr(logging, args.log_level.upper())
     if os.path.exists(args.log_dir) and not os.path.isdir(args.log_dir):
          parser.error(f"--log-dir must be a directory path, not a file: {args.log_dir}")
+         
+    # Ensure we have at least one root type
+    if not args.allow_root and not args.sftp_root:
+        parser.error("At least one of --allow-root or --sftp-root must be specified")
+        
     return args
 
 # --- Main Execution Function (called by script entry point) ---
@@ -228,32 +344,34 @@ def main():
 
     try:
         args = parse_arguments()
+        setup_logging(args.log_dir, args.log_level_int) 
+        logger = logging.getLogger(__name__) # Get logger *after* setup
         config = ServerConfig(args)
-    except (SystemExit, ValueError) as e:
+    except (SystemExit, ValueError) as e: # Catch config/argparse errors
+        # Use basicConfig for logging if setup_logging hasn't run or failed early
+        logging.basicConfig(level=logging.ERROR) 
+        logging.exception("Configuration failed critically") # Log exception info
         print(f"ERROR: Configuration failed: {e}", file=sys.stderr)
         return sys.exit(e.code if isinstance(e, SystemExit) else 1)
-    except Exception as e:
+    except Exception as e: # Catch unexpected errors during setup (like logging setup itself)
+        # Use basicConfig as fallback if setup_logging failed
+        logging.basicConfig(level=logging.ERROR) 
+        logging.exception("Critical failure during initial setup") # Log the exception
         print(f"CRITICAL: Failed during argument parsing or validation: {e}", file=sys.stderr)
         return sys.exit(1)
 
-    try:
-        setup_logging(config.log_dir, config.log_level)
-        logger = logging.getLogger(__name__) # Get logger for this module (cursor_notebook_mcp.server)
-    except Exception as e:
-        print(f"CRITICAL: Failed during logging setup: {e}", file=sys.stderr)
-        logging.basicConfig(level=logging.ERROR)
-        logging.exception("Logging setup failed critically")
-        return sys.exit(1)
-
-    # Set a default logger if it's still None to prevent NoneType errors
+    # Set a default logger if it's still None (shouldn't happen now, but defensive)
     if logger is None:
         logger = logging.getLogger(__name__)
+        logger.warning("Logger was not initialized correctly during setup.")
 
     logger.info(f"Notebook MCP Server starting (Version: {config.version}) - via {__name__}")
     logger.info(f"Allowed Roots: {config.allowed_roots}")
     logger.info(f"Transport Mode: {config.transport}")
     if config.transport == 'sse':
         logger.info(f"SSE Endpoint: http://{config.host}:{config.port}")
+    if config.sftp_manager:
+        logger.info(f"SFTP connections active")
     logger.debug(f"Full configuration: {config.__dict__}")
 
     try:
@@ -261,6 +379,8 @@ def main():
         tool_provider = NotebookTools(config, mcp_server)
         logger.info("Notebook tools initialized and registered.")
     except Exception as e:
+        # *** Add basicConfig fallback here too if logger failed ***
+        if logger is None: logging.basicConfig(level=logging.ERROR)
         logger.exception("Failed to initialize MCP server or tools.")
         return sys.exit(1)
 
@@ -270,25 +390,57 @@ def main():
             mcp_server.run(transport='stdio')
             logger.info("Server finished (stdio).")
         
-        elif config.transport == 'sse':
-            logger.info(f"Running server via SSE...")
+        elif config.transport == 'streamable-http':
+            logger.info(f"Running server using FastMCP's Streamable HTTP transport...")
             try:
-                run_sse_server(mcp_server, config)
+                mcp_server.run(
+                    transport="streamable-http",
+                    host=config.host,
+                    port=config.port,
+                    log_level=logging.getLevelName(config.log_level).lower()
+                )
             except ImportError as e:
-                logger.error(f"Failed to start SSE server due to missing packages: {e}")
+                logger.error(f"Failed to start Streamable HTTP server due to missing packages: {e}")
+                logger.error("Hint: HTTP transport requires optional dependencies. Try: pip install \"fastmcp[http]\"")
                 return sys.exit(1)
             except Exception as e:
-                logger.exception("Failed to start or run SSE server.")
+                logger.exception("Failed to start or run FastMCP Streamable HTTP server.")
+                return sys.exit(1)
+            logger.info("Server finished (Streamable HTTP).")
+
+        elif config.transport == 'sse': 
+            logger.info(f"Running server using FastMCP's (deprecated) SSE transport...")
+            try:
+                mcp_server.run(
+                    transport="sse",
+                    host=config.host,
+                    port=config.port,
+                    log_level=logging.getLevelName(config.log_level).lower()
+                    # Default paths for 'sse' are typically /sse (GET) and /messages (POST)
+                    # path="/custom_sse_path" # if you need to customize sse path
+                    # message_path_prefix="/custom_message_path" # if you need to customize message path
+                )
+            except ImportError as e: 
+                logger.error(f"Failed to start SSE server due to missing packages: {e}")
+                logger.error("Hint: SSE transport requires optional dependencies. Try: pip install \"fastmcp[http]\" (provides SSE dependencies too)")
+                return sys.exit(1)
+            except Exception as e:
+                logger.exception("Failed to start or run FastMCP SSE server.")
                 return sys.exit(1)
             logger.info("Server finished (SSE).")
             
         else:
-            logger.error(f"Internal Error: Invalid transport specified: {config.transport}")
+            logger.error(f"Internal Error: Invalid transport specified in validated config: {config.transport}")
             return sys.exit(1)
             
     except Exception as e:
         logger.exception("Server encountered a fatal error during execution.")
         return sys.exit(1)
+    finally:
+        # Clean up SFTP connections
+        if config.sftp_manager:
+            logger.info("Closing SFTP connections...")
+            config.sftp_manager.close_all()
 
 # If this script is run directly (e.g., python -m cursor_notebook_mcp.server)
 if __name__ == "__main__":

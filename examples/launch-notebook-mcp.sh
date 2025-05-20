@@ -23,4 +23,4 @@ fi
 cursor-notebook-mcp "$@"
 
 # Alternatively, if running directly from source (and venv is active):
-# python /path/to/project/notebook_mcp_server.py "$@" 
+# python -m cursor_notebook_mcp.server "$@" 

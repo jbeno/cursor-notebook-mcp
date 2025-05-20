@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-05-20
+
+### Added
+- **SFTP Support for Remote Notebooks**: Added SFTP integration for accessing and managing notebooks on remote SSH servers (resolves [issue #2](https://github.com/jbeno/cursor-notebook-mcp/issues/2)).
+    - New command-line arguments: `--sftp-root` (multiple allowed), `--sftp-password`, `--sftp-key`, `--sftp-port`, `--sftp-no-interactive`, `--sftp-no-agent`, `--sftp-no-password-prompt`, `--sftp-auth-mode`.
+    - Supports various SSH authentication methods including password, public key (with passphrase), SSH agent, and interactive (2FA).
+    - Transparently handles file operations on remote SFTP paths.
+    - Automatic tilde (`~`) expansion for remote paths.
+- **Enhanced Web Transport with FastMCP (v2.3.4+):**
+    - Integrated `FastMCP`'s `run()` method for robust handling of all transport modes (`stdio`, `streamable-http`, `sse`).
+    - `--transport streamable-http`: Now uses `FastMCP`'s built-in Streamable HTTP, becoming the **recommended web transport**.
+    - `--transport sse`: Now uses `FastMCP`'s built-in (but deprecated by FastMCP) two-endpoint SSE for legacy compatibility.
+- New tool: `notebook_edit_cell_output` to allow direct manipulation and setting of cell outputs.
+- New tool: `notebook_bulk_add_cells` for adding multiple cells to a notebook in a single operation.
+- New tool: `notebook_get_server_path_context` to provide detailed server path configuration for robust client path construction.
+- Added PowerShell script `run_tests.ps1` for test execution on Windows.
+- Added `examples/demo_tools_list.py` script, demonstrating client-side MCP handshake and `tools/list` request (part of resolving [issue #5](https://github.com/jbeno/cursor-notebook-mcp/issues/5)).
+
+### Changed
+- **Refactored Server Logic**: Server now leverages `FastMCP`'s internal `run()` method for all transport modes, simplifying logic and improving reliability.
+- Improved path handling for Windows-style paths and URL-encoded components (related to [issue #4](https://github.com/jbeno/cursor-notebook-mcp/issues/4)).
+- Updated `README.md` with detailed instructions for all transport modes, `mcp.json` configurations, and refined transport recommendations. Added known issues for [issue #1](https://github.com/jbeno/cursor-notebook-mcp/issues/1) and [issue #3](https://github.com/jbeno/cursor-notebook-mcp/issues/3).
+- Updated `examples/demo_tools_list.py` script to demonstrate client-side MCP handshake and `tools/list` request.
+- Refined `cursor_rules.md` for clarity and to reflect new tool capabilities.
+- **Simplified Installation**: `uvicorn` and `starlette` are now core dependencies. Optional extras `[http]` and `[sse]` removed. All transports supported by default install.
+- Command-line `--transport` choices are now `stdio`, `streamable-http`, and `sse`.
+- Updated code coverage metrics: Overall 82%; `notebook_ops.py` 92%, `server.py` 93%, `tools.py` 82%, `sftp_manager.py` 74%.
+
+### Removed
+- Custom SSE transport implementation (`cursor_notebook_mcp/sse_transport.py`), now handled by `FastMCP`.
+- Removed `validate_imports` tool, which, along with `tools/list` availability and updated documentation, resolves [issue #5](https://github.com/jbeno/cursor-notebook-mcp/issues/5).
+
+### Fixed
+- HTTP 405 errors and client fallback issues for web transports by adopting `FastMCP`'s implementations.
+- Addressed issues with Windows path interpretation (resolves [issue #4](https://github.com/jbeno/cursor-notebook-mcp/issues/4)).
+
 ## [0.2.4] - 2025-04-26
 
 ### Added
@@ -13,7 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `notebook_get_outline` method analyzes a Jupyter notebook's structure, extracting cell types, line counts, and outlines for code and markdown cells.
 - The `notebook_search` method allows for case-insensitive searching within notebook cells, returning matches with context snippets.
 - Added dedicated tests for error paths and edge cases in the NotebookTools module, focusing on improving code coverage.
-- Added tests for handling issues with `diagnose_imports`, including subprocess errors and malformed JSON.
 - Added validation tests for notebooks addressing invalid JSON and non-notebook files.
 - Added tests for outline extraction with invalid code syntax.
 - Added tests for empty search queries and behavior of large file truncation.
@@ -42,43 +77,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed invalid comments from JSON examples.
   - Explicitly documented external system requirements (Pandoc, LaTeX) for PDF export.
 - Updated project metadata (`classifiers`, `keywords`, `urls`) in `pyproject.toml`.
-- Configured `pytest` via `pyproject.toml` to set environment variables (`JUPYTER_PLATFORM_DIRS`).
-- Refactored `sse_transport.py` to separate app creation (`create_starlette_app`) for better testability.
-
-### Fixed
-- Bug in `notebook_read` size estimation loop (`NameError: name 'i' is not defined`).
-- Multiple test failures related to incorrect mocking, error expectations, path handling, test setup, and imports (`StringIO`, `FastMCP`).
-- Invalid escape sequence in `pyproject.toml` coverage exclusion pattern.
-- Several issues in SSE transport (`sse_transport.py`) related to refactoring, including incorrect `SseServerTransport` initialization, missing `/messages` route handling, and incorrect parameters passed to the underlying `mcp.server.Server.run` method, causing connection failures.
-- GitHub Actions CI workflow failure (exit code 127) by switching dependency installation from `uv` to standard `pip` to ensure `pytest` is found.
-- Hanging test (`test_sse_route_connection` in `tests/test_sse_transport.py`) by refactoring to call the handler directly with a mock request instead of using `TestClient`.
-- CI test failure (`test_read_large_notebook_truncated`) by enabling Git LFS (`lfs: true`) in the `actions/checkout` step to correctly download large fixture files.
-
-## [0.2.2] - 2025-04-19
-
-### Fixed
-- Suppressed noisy `traitlets` validation errors (`Notebook JSON is invalid: Additional properties are not allowed ('id' was unexpected)`) by adding a specific logging filter in `server.py` instead of changing the global logger level. This prevents valid `ERROR` messages from `traitlets` from being hidden.
-
-### Added
-- `CHANGELOG.md` file to track project changes.
-- "Suggested Cursor Rules" section to `README.md` explaining best practices for using the MCP server with Cursor's AI, formatted as a copy-pasteable markdown block.
-
-## [0.2.1] - 2025-04-18
-
-### Added
-- Initial release of the Jupyter Notebook MCP Server.
-- Core functionality for manipulating Jupyter Notebook (`.ipynb`) files via MCP tools.
-- Support for both `stdio` and `sse` transport modes.
-- Command-line arguments for configuration (allowed roots, logging, transport, etc.).
-- Security features: `--allow-root` enforcement, path validation, cell size limits.
-- MCP Tools Implemented:
-  - File Operations: `notebook_create`, `notebook_delete`, `notebook_rename`
-  - Notebook Read Operations: `notebook_read`, `notebook_get_cell_count`, `notebook_get_info`
-  - Cell Read Operations: `notebook_read_cell`, `notebook_read_cell_output`
-  - Cell Manipulation: `notebook_add_cell`, `notebook_edit_cell`, `notebook_delete_cell`, `notebook_move_cell`, `notebook_change_cell_type`, `notebook_duplicate_cell`, `notebook_split_cell`, `notebook_merge_cells`
-  - Metadata Operations: `notebook_read_metadata`, `notebook_edit_metadata`, `notebook_read_cell_metadata`, `notebook_edit_cell_metadata`
-  - Output Management: `notebook_clear_cell_outputs`, `notebook_clear_all_outputs`
-  - Utility: `notebook_validate`, `notebook_export` (via `nbconvert`)
-- Basic `README.md` with installation, usage, and integration instructions.
-- `pyproject.toml` for packaging and dependency management.
-- Test suite using `pytest`. 
+- Configured `pytest` via `pyproject.toml` to set environment variables (`JUPYTER_PLATFORM_DIRS`

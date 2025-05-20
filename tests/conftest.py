@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import List, Callable
 import uuid
 import shutil # Add import for shutil
+import logging # Added for logger in cleanup
+# from contextlib import suppress # No longer needed if cleanup_asyncio is removed/simplified
+# import threading # No longer needed if SafeEventLoopPolicy is removed
 
 # Add project root to sys.path to allow importing the package
 project_root = Path(__file__).parent.parent
@@ -18,7 +21,9 @@ sys.path.insert(0, str(project_root))
 # Import necessary components from the package and server script
 from cursor_notebook_mcp.server import ServerConfig
 from cursor_notebook_mcp.tools import NotebookTools
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
+
+logger = logging.getLogger(__name__) # Define logger at module level if not already present
 
 # --- Fixtures ---
 
@@ -44,6 +49,15 @@ def server_config(temp_notebook_dir: Path) -> ServerConfig:
         transport = 'stdio' # Default, doesn't matter for direct tool testing
         host = '127.0.0.1'
         port = 8080
+        # Add SFTP defaults expected by ServerConfig.__init__
+        sftp_root = None
+        sftp_password = None
+        sftp_key = None
+        sftp_port = 22
+        sftp_no_interactive = False
+        sftp_no_agent = False
+        sftp_no_password_prompt = False
+        sftp_auth_mode = 'auto'
         
     return ServerConfig(MockArgs())
 
@@ -69,9 +83,15 @@ def notebook_path_factory(temp_notebook_dir: Path) -> Callable[[], str]:
     return _create_path
 
 # Fixture to provide an async event loop for tests marked with @pytest.mark.asyncio
-# This might be automatically handled by pytest-asyncio, but defining it explicitly can sometimes help.
-# Removing custom event_loop fixture as pytest-asyncio provides one automatically
-# and redefining it causes a DeprecationWarning.
+# We're using pytest-asyncio's built-in event loop fixture
+# Instead of redefining it, we'll use a custom event loop policy
+
+# REMOVED SafeEventLoopPolicy and event_loop_policy fixture
+
+# REMOVED or COMMENTED OUT cleanup_asyncio fixture
+# @pytest.fixture(autouse=True)
+# def cleanup_asyncio(request, event_loop_policy): # event_loop_policy would also be removed
+#     ...
 
 @pytest.fixture(scope="session")
 def cli_command_path() -> str:

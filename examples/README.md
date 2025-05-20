@@ -1,12 +1,76 @@
 # Cursor Notebook MCP Examples
 
 This directory contains examples demonstrating how to use the Cursor Notebook MCP server.
+The main `README.md` in the parent directory contains more comprehensive setup and configuration instructions.
 
-## stdio Transport (Default)
+## 1. Streamable HTTP Transport (Recommended)
 
-For stdio transport, Cursor manages the server process automatically. You just need to create a configuration file.
+With Streamable HTTP, you run the server process manually, and Cursor connects to it over the network. This is the recommended method for most setups.
 
-### Example Configuration: `mcp.json`
+### A. Running the Server (Manual Start Required)
+
+Ensure the package is installed (e.g., `pip install cursor-notebook-mcp`) or your virtual environment is active if running from source.
+
+*   **Using the installed script:**
+    ```bash
+    cursor-notebook-mcp --transport streamable-http --allow-root /path/to/your/notebooks --host 127.0.0.1 --port 8080
+    ```
+*   **Running from a source checkout (ensure dependencies are installed and venv is active):**
+    ```bash
+    python -m cursor_notebook_mcp.server --transport streamable-http --allow-root /path/to/your/notebooks --host 127.0.0.1 --port 8080
+    ```
+    Replace `/path/to/your/notebooks` with the actual path.
+
+### B. Cursor `mcp.json` Configuration
+
+Create or update your `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-specific) file:
+```json
+{
+  "mcpServers": {
+    "notebook_mcp": {
+      "url": "http://127.0.0.1:8080/mcp"
+    }
+  }
+}
+```
+*Note: The server must be running before Cursor attempts to connect. The `/mcp` path is the default for `FastMCP`'s streamable HTTP transport.*
+
+## 2. SSE Transport (Legacy Web/Network)
+
+SSE is a legacy transport but still supported. Streamable HTTP is preferred. You run the server process manually.
+
+### A. Running the Server (Manual Start Required)
+
+Ensure the package is installed or venv is active for source.
+
+*   **Using the installed script:**
+    ```bash
+    cursor-notebook-mcp --transport sse --allow-root /path/to/your/notebooks --host 127.0.0.1 --port 8080
+    ```
+*   **Running from a source checkout (ensure venv is active):**
+    ```bash
+    python -m cursor_notebook_mcp.server --transport sse --allow-root /path/to/your/notebooks --host 127.0.0.1 --port 8080
+    ```
+    *Note: If running Streamable HTTP on port 8080 simultaneously, you'll need to choose a different port for SSE (e.g., `--port 8081`) and update the URL in `mcp.json` accordingly.*
+
+### B. Cursor `mcp.json` Configuration
+
+```json
+{
+  "mcpServers": {
+    "notebook_mcp": {
+      "url": "http://127.0.0.1:8080/sse"
+    }
+  }
+}
+```
+*Note: The `/sse` path is the default for `FastMCP`'s SSE transport. Adjust the port in the URL if you changed it when starting the server.*
+
+## 3. stdio Transport
+
+With `stdio` transport, Cursor launches and manages the server process directly.
+
+### Basic `mcp.json` for stdio:
 
 ```json
 {
@@ -16,60 +80,19 @@ For stdio transport, Cursor manages the server process automatically. You just n
       "args": [
         "--allow-root", "/absolute/path/to/your/notebooks",
         "--log-level", "INFO"
+        // Add other server arguments here if needed
       ]
     }
   }
 }
 ```
+Place this file in `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-specific).
 
-Place this file in:
-- `~/.cursor/mcp.json` for global configuration
-- `.cursor/mcp.json` in your project directory for project-specific configuration
+### Environment Management for stdio Transport
 
-## SSE Transport (Network-based)
+Ensure Cursor uses the correct Python environment.
 
-For SSE transport, you need to manually run the server and configure Cursor to connect to it.
-
-### Starting the Server
-
-Make sure the package is installed (`pip install .[sse]`) or run from the source directory using your virtual environment's Python.
-
-```bash
-# If installed:
-cursor-notebook-mcp --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
-
-# Or running from source (ensure venv is active):
-# python notebook_mcp_server.py --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
-```
-
-### Example Configuration: `mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "notebook_mcp": {
-      "url": "http://localhost:8080/sse"
-    }
-  }
-}
-```
-
-Place this file in:
-- `~/.cursor/mcp.json` for global configuration
-- `.cursor/mcp.json` in your project directory for project-specific configuration
-
-## Verification
-
-When configured correctly, you should see `notebook_mcp` listed in Cursor's MCP settings page under "Available Tools".
-
-## Environment Management
-
-If you're using a virtual environment (recommended), you need to ensure the MCP server runs within that environment.
-
-### For stdio Transport (Cursor-managed)
-
-Option 1: Use the absolute path to the installed script in your virtual environment (Recommended if installed):
-
+**Option 1: Using absolute path to venv's installed script (Recommended for `venv`)**
 ```json
 {
   "mcpServers": {
@@ -81,55 +104,100 @@ Option 1: Use the absolute path to the installed script in your virtual environm
 }
 ```
 
-Option 2: Use the absolute path to Python in your virtual environment and run the main script directly:
-
+**Option 2: Using venv's Python to run the module**
 ```json
 {
   "mcpServers": {
     "notebook_mcp": {
       "command": "/absolute/path/to/venv/bin/python",
-      "args": ["/absolute/path/to/project/notebook_mcp_server.py", "--allow-root", "/path/to/notebooks"]
+      "args": [
+        "-m", "cursor_notebook_mcp.server",
+        "--allow-root", "/path/to/notebooks"
+      ]
     }
   }
 }
 ```
 
-Option 3: Create a wrapper script (like `launch-notebook-mcp.sh` in this directory) that activates your environment:
-
+**Option 3: Using a wrapper script (like `launch-notebook-mcp.sh`)**
 ```json
 {
   "mcpServers": {
     "notebook_mcp": {
-      "command": "/absolute/path/to/launch-notebook-mcp.sh",
+      "command": "/absolute/path/to/your/launch-notebook-mcp.sh",
       "args": ["--allow-root", "/path/to/notebooks"]
     }
   }
 }
 ```
+*(The `launch-notebook-mcp.sh` script in this directory helps activate a venv.)*
 
-### For SSE Transport (User-managed)
+**Option 4: Using `uv` to run from a specific project's venv (Recommended for `uv`)**
 
-Always activate your virtual environment before launching the server:
+*   If `cursor-notebook-mcp` is an installed script in the `uv` environment:
+    ```json
+    {
+      "mcpServers": {
+        "notebook_mcp": {
+          "command": "uv", 
+          "args": [
+            "--directory", "/absolute/path/to/your/project/with/uv/venv", 
+            "run", "--", 
+            "cursor-notebook-mcp", 
+            "--allow-root", "/absolute/path/to/your/notebooks"
+          ]
+        }
+      }
+    }
+    ```
+*   Using `uv run` with `python -m ...`:
+    ```json
+    {
+      "mcpServers": {
+        "notebook_mcp": {
+          "command": "uv", 
+          "args": [
+            "--directory", "/absolute/path/to/your/project/with/uv/venv", 
+            "run", "--", 
+            "python", "-m", "cursor_notebook_mcp.server",
+            "--allow-root", "/absolute/path/to/your/notebooks"
+          ]
+        }
+      }
+    }
+    ```
+    *Note: For `uv` examples, provide the full path to `uv` if it's not on PATH. The `--directory` should be your project root where `uv` manages the environment.*
+
+## Environment Management for Network Transports (User-managed)
+
+For Streamable HTTP or SSE, always activate your virtual environment *before* manually launching the server:
 
 ```bash
-# First activate your environment
-source /path/to/venv/bin/activate
+# First activate your environment (example for bash/zsh)
+source /path/to/venv/bin/activate 
 
-# Then launch the installed server script
-cursor-notebook-mcp --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
+# Then launch the server (example for Streamable HTTP)
+cursor-notebook-mcp --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
 ```
 
-When using a systemd service (like `cursor-notebook-mcp.service` in this directory):
+## Systemd Service (`cursor-notebook-mcp.service`)
+
+If using the example `cursor-notebook-mcp.service` file (now configured for Streamable HTTP):
 
 ```ini
-# In your systemd service file:
+# In your systemd service file (examples/cursor-notebook-mcp.service):
 
-# Option 1: Use direct path to the installed script in venv (Recommended if installed)
-ExecStart=/path/to/venv/bin/cursor-notebook-mcp --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
+# Option 1: Use direct path to the installed script in venv
+ExecStart=/path/to/venv/bin/cursor-notebook-mcp --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
 
-# Option 2: Or use bash to source the environment first
-# ExecStart=/bin/bash -c 'source /path/to/venv/bin/activate && cursor-notebook-mcp --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks'
+# Option 2: Use Python from venv to run the module
+# ExecStart=/path/to/venv/bin/python -m cursor_notebook_mcp.server --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
 
-# Option 3: Or use direct python path and script path
-# ExecStart=/path/to/venv/bin/python /path/to/project/notebook_mcp_server.py --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
-``` 
+# Option 3: Use bash to source the environment first
+# ExecStart=/bin/bash -c 'source /path/to/venv/bin/activate && cursor-notebook-mcp --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks'
+```
+*Remember to replace placeholder paths and ensure correct user/group settings in the service file.*
+
+## Verification
+
+When configured correctly, you should see `notebook_mcp` listed in Cursor's MCP settings page under "Available Tools" after Cursor connects to or starts the server. 

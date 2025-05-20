@@ -8,39 +8,107 @@ import nbformat
 from unittest import mock
 from pathlib import Path
 import logging
-from io import StringIO # Import StringIO from io
+from io import StringIO
+import asyncio
+import sys
+import atexit
+from contextlib import suppress
 
-# Import functions to test
+# Now import functions to test
 from cursor_notebook_mcp import notebook_ops
 from cursor_notebook_mcp.server import setup_logging
 
+# --- Fixtures for isolated mocking ---
+
+# Using the event_loop fixture from conftest.py
+
+@pytest.fixture
+def mock_sftp_operations(monkeypatch, request):
+    """Mock SFTP operations for tests that use remote functionality"""
+    # Create mock SFTP manager
+    mock_sftp_mgr = mock.MagicMock()
+    
+    # Setup common SFTP operations behavior
+    mock_sftp_mgr.read_file.return_value = b"{\"cells\": [], \"metadata\": {}, \"nbformat\": 4, \"nbformat_minor\": 5}"
+    mock_sftp_mgr.translate_path.return_value = (True, "/remote/path/notebook.ipynb", ("mock_client", "mock_sftp"))
+    mock_sftp_mgr._get_absolute_remote_path.return_value = "/remote/path/notebook.ipynb"
+    
+    # Create mock connection and SFTP client
+    mock_client = mock.MagicMock()
+    mock_sftp = mock.MagicMock()
+    mock_sftp.normalize.return_value = "/remote/path"
+    
+    # Add path mappings for permission checks
+    mock_sftp_mgr.connections = {"hostname": (mock_client, mock_sftp)}
+    mock_sftp_mgr.path_mappings = {
+        "user@hostname:/remote/path": ("hostname", "user", "/remote/path/", "/local/path/")
+    }
+    
+    # Mock home directory query
+    mock_sftp_mgr._get_remote_home_dir.return_value = "/home/user"
+    
+    # Use monkeypatch for safer function-level patching
+    monkeypatch.setattr('cursor_notebook_mcp.notebook_ops.SFTPManager', lambda: mock_sftp_mgr)
+    
+    # Add finalizer to ensure proper cleanup
+    def finalizer():
+        # Reset any mocks that might be causing issues
+        mock_sftp_mgr.reset_mock()
+        mock_client.reset_mock()
+        mock_sftp.reset_mock()
+    
+    request.addfinalizer(finalizer)
+    
+    return mock_sftp_mgr
 
 @pytest.mark.asyncio
 async def test_read_notebook_io_error(tmp_path):
-    """Test read_notebook handles IOError from nbformat.read."""
-    # Create a dummy file path within the temp directory
-    dummy_path = tmp_path / "dummy_read.ipynb"
-    dummy_path.touch() # Create the file so path checks pass
+    """Test read_notebook handles IOError during the underlying read."""
+    dummy_path = tmp_path / "dummy_read_io.ipynb"
+    dummy_path.write_text("{\"cells\": [], \"metadata\": {}, \"nbformat\": 4, \"nbformat_minor\": 5}")
     allowed_roots = [str(tmp_path)]
     
-    # Mock nbformat.read to raise IOError
-    with mock.patch('nbformat.read', side_effect=IOError("Cannot read file")):
-        with pytest.raises(IOError, match="Cannot read file"):
-            # Call the async function from notebook_ops with await
-            await notebook_ops.read_notebook(str(dummy_path), allowed_roots)
+    # Simulate IOError during the to_thread call directly
+    async def mock_to_thread(*args, **kwargs):
+        # Simulate the error that would happen inside the thread
+        raise IOError("Simulated Cannot read file")
+
+    # Patch asyncio.to_thread within notebook_ops for this test
+    with mock.patch('cursor_notebook_mcp.notebook_ops.asyncio.to_thread', side_effect=mock_to_thread):
+        # The IOError from the mocked to_thread should propagate out
+        # Match the wrapper function's message
+        with pytest.raises(IOError, match=r"Failed to read local notebook file.*?Simulated Cannot read file"):
+            # Add a timeout to prevent hanging
+            try:
+                await asyncio.wait_for(
+                    notebook_ops.read_notebook(str(dummy_path), allowed_roots),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pytest.fail("Test timed out after 5 seconds")
 
 @pytest.mark.asyncio
 async def test_read_notebook_validation_error(tmp_path):
-    """Test read_notebook handles ValidationError from nbformat.read."""
+    """Test read_notebook handles ValidationError during parsing."""
     dummy_path = tmp_path / "dummy_validation.ipynb"
-    dummy_path.touch()
+    # Write valid JSON but invalid notebook structure
+    dummy_path.write_text("{\"invalid_notebook_structure\": true}") 
     allowed_roots = [str(tmp_path)]
     validation_error_instance = nbformat.ValidationError("Invalid notebook format")
     
-    with mock.patch('nbformat.read', side_effect=validation_error_instance):
-        # Expect the function to catch ValidationError and re-raise it as IOError
-        with pytest.raises(IOError, match=r"Failed to read notebook file.*?Invalid notebook format"):
-            await notebook_ops.read_notebook(str(dummy_path), allowed_roots)
+    # Mock nbformat.reads (which happens after file read) to raise ValidationError
+    with mock.patch('nbformat.reads', side_effect=validation_error_instance):
+        # The function should catch ValidationError and raise IOError
+        # Match the message generated by the exception wrapper
+        with pytest.raises(IOError, match=r"An unexpected error occurred while reading.*?Invalid notebook format"):
+            # Add a timeout to prevent hanging
+            try:
+                await asyncio.wait_for(
+                    notebook_ops.read_notebook(str(dummy_path), allowed_roots),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pytest.fail("Test timed out after 5 seconds")
 
 @pytest.mark.asyncio
 async def test_write_notebook_io_error(tmp_path):
@@ -53,7 +121,14 @@ async def test_write_notebook_io_error(tmp_path):
     # Mock nbformat.write to raise IOError
     with mock.patch('nbformat.write', side_effect=IOError("Cannot write file")):
         with pytest.raises(IOError, match="Cannot write file"):
-            await notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots)
+            # Add a timeout to prevent hanging
+            try:
+                await asyncio.wait_for(
+                    notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pytest.fail("Test timed out after 5 seconds")
 
 @pytest.mark.asyncio
 async def test_read_notebook_file_not_found(tmp_path):
@@ -65,66 +140,77 @@ async def test_read_notebook_file_not_found(tmp_path):
     assert not non_existent_path.exists()
     
     with pytest.raises(FileNotFoundError):
-        await notebook_ops.read_notebook(str(non_existent_path), allowed_roots)
+        # Add a timeout to prevent hanging
+        try:
+            await asyncio.wait_for(
+                notebook_ops.read_notebook(str(non_existent_path), allowed_roots),
+                timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            pytest.fail("Test timed out after 5 seconds")
 
 @pytest.mark.asyncio
 async def test_read_notebook_generic_exception(tmp_path):
-    """Test read_notebook handles generic Exception from nbformat.read."""
+    """Test read_notebook handles generic Exception during read/parse."""
     dummy_path = tmp_path / "dummy_generic_read.ipynb"
-    dummy_path.touch()
+    dummy_path.write_text("{\"cells\": [], \"metadata\": {}, \"nbformat\": 4, \"nbformat_minor\": 5}") # Valid structure
     allowed_roots = [str(tmp_path)]
-    generic_error = Exception("Some generic read error")
+    generic_error = Exception("Some generic read/parse error")
 
-    with mock.patch('nbformat.read', side_effect=generic_error):
-        # Expect the function to catch Exception and re-raise it as IOError
-        with pytest.raises(IOError, match=r"Failed to read notebook file.*?Some generic read error"):
-            await notebook_ops.read_notebook(str(dummy_path), allowed_roots)
+    # Mock nbformat.reads to raise a generic exception
+    with mock.patch('nbformat.reads', side_effect=generic_error):
+        # Match the message generated by the exception wrapper
+        with pytest.raises(IOError, match=r"An unexpected error occurred while reading.*?Some generic read/parse error"):
+            # Add a timeout to prevent hanging
+            try:
+                await asyncio.wait_for(
+                    notebook_ops.read_notebook(str(dummy_path), allowed_roots),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pytest.fail("Test timed out after 5 seconds")
 
 @pytest.mark.asyncio
 async def test_write_notebook_generic_exception(tmp_path):
-    """Test write_notebook handles generic Exception from nbformat.write."""
+    """Test write_notebook handles generic Exception from the write implementation."""
     dummy_path = tmp_path / "dummy_generic_write.ipynb"
     allowed_roots = [str(tmp_path)]
     nb = nbformat.v4.new_notebook()
     generic_error = Exception("Some generic write error")
 
+    # Mock the specific write function called within the thread (nbformat.write)
     with mock.patch('nbformat.write', side_effect=generic_error):
-        with pytest.raises(IOError, match=r"Failed to write notebook file.*?Some generic write error"):
-            await notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots)
+        # Expect the wrapper exception message
+        with pytest.raises(IOError, match=r"Failed to write local notebook.*?Some generic write error"):
+            # Add a timeout to prevent hanging
+            try:
+                await asyncio.wait_for(
+                    notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pytest.fail("Test timed out after 5 seconds")
 
 
 # --- setup_logging Tests (Synchronous) ---
 
-@mock.patch('os.makedirs', side_effect=OSError("Permission denied to create dir"))
-@mock.patch('logging.FileHandler') # Mock FileHandler to prevent actual file creation
-@mock.patch('sys.stderr', new_callable=StringIO) # Use imported StringIO
-def test_setup_logging_makedirs_error(mock_stderr, mock_filehandler, mock_makedirs, tmp_path):
-    """Test setup_logging handles OSError when creating log directory."""
-    log_dir = str(tmp_path / "unwritable_logs")
-    setup_logging(log_dir, logging.INFO)
+# Removed: test_setup_logging_makedirs_error - Kept in tests/test_server.py as setup_logging is a server utility.
+# @mock.patch('os.makedirs', side_effect=OSError("Permission denied to create dir"))
+# @mock.patch('logging.FileHandler') # Mock FileHandler to prevent actual file creation
+# @mock.patch('sys.stderr', new_callable=StringIO) # Use imported StringIO
+# def test_setup_logging_makedirs_error(mock_stderr, mock_filehandler, mock_makedirs, tmp_path):
+#     """Test setup_logging handles OSError when creating log directory."""
+#     log_dir = str(tmp_path / "unwritable_logs")
+#     setup_logging(log_dir, logging.INFO)
+# 
+#     mock_makedirs.assert_called_once_with(log_dir, exist_ok=True)
+#     # Check that the error was printed to stderr
+#     assert "Could not create log directory" in mock_stderr.getvalue()
+#     assert "Permission denied to create dir" in mock_stderr.getvalue()
+#     # Check that FileHandler was NOT called because log_dir creation failed
+#     mock_filehandler.assert_not_called()
 
-    mock_makedirs.assert_called_once_with(log_dir, exist_ok=True)
-    # Check that the error was printed to stderr
-    assert "Could not create log directory" in mock_stderr.getvalue()
-    assert "Permission denied to create dir" in mock_stderr.getvalue()
-    # Check that FileHandler was NOT called because log_dir creation failed
-    mock_filehandler.assert_not_called()
-
-@mock.patch('os.makedirs') # Mock makedirs to succeed
-@mock.patch('logging.FileHandler', side_effect=IOError("Cannot open log file for writing"))
-@mock.patch('sys.stderr', new_callable=StringIO) # Use imported StringIO
-def test_setup_logging_filehandler_error(mock_stderr, mock_filehandler, mock_makedirs, tmp_path):
-    """Test setup_logging handles error when creating FileHandler."""
-    log_dir = str(tmp_path / "logs")
-    log_file_path = os.path.join(log_dir, "server.log")
-
-    setup_logging(log_dir, logging.INFO)
-
-    mock_makedirs.assert_called_once_with(log_dir, exist_ok=True)
-    mock_filehandler.assert_called_once_with(log_file_path, encoding='utf-8')
-    # Check that the warning was printed to stderr
-    assert "Could not set up file logging" in mock_stderr.getvalue()
-    assert "Cannot open log file for writing" in mock_stderr.getvalue()
+# Removed: test_setup_logging_filehandler_error - Kept in tests/test_server.py as setup_logging is a server utility.
 
 # --- Additional Tests for notebook_ops.py Coverage ---
 
@@ -161,61 +247,114 @@ def test_is_path_allowed_root_resolve_error():
         assert not notebook_ops.is_path_allowed(test_path, allowed_roots)
 
 @pytest.mark.asyncio
-async def test_read_notebook_non_absolute_path():
-    """Test read_notebook rejects non-absolute paths."""
-    non_abs_path = "relative/path/notebook.ipynb"
-    allowed_roots = ["/valid/root"]
+async def test_read_notebook_non_absolute_path(tmp_path):
+    """Test read_notebook correctly resolves relative paths within allowed roots."""
+    allowed_roots = [str(tmp_path)]
+    relative_path = "subdir/my_notebook.ipynb" # Relative path
+    absolute_path = tmp_path / relative_path
     
-    with pytest.raises(ValueError, match="Invalid notebook path: Only absolute paths are allowed"):
-        await notebook_ops.read_notebook(non_abs_path, allowed_roots)
+    # Create the file at the expected absolute location
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    # Write minimal valid notebook content
+    nb_content = nbformat.v4.new_notebook()
+    nbformat.write(nb_content, str(absolute_path))
+    
+    # Read using the relative path
+    try:
+        nb_read = await notebook_ops.read_notebook(relative_path, allowed_roots)
+        assert isinstance(nb_read, nbformat.NotebookNode) # Verify successful read
+    except Exception as e:
+        pytest.fail(f"Read with relative path failed unexpectedly: {e}")
+    finally:
+        # Clean up
+        if absolute_path.exists():
+            absolute_path.unlink()
+        if absolute_path.parent.exists():
+            # Only remove if empty, might interfere with other tests otherwise
+            try: 
+                absolute_path.parent.rmdir()
+            except OSError:
+                pass # Ignore if not empty
 
 @pytest.mark.asyncio
 async def test_read_notebook_outside_allowed_roots(tmp_path):
     """Test read_notebook rejects paths outside allowed roots."""
-    dummy_path = "/some/path/outside/notebook.ipynb"
+    dummy_path = "/some/other/root/notebook.ipynb"
     allowed_roots = [str(tmp_path)]
     
-    with pytest.raises(PermissionError, match="Access denied: Path .* is outside the allowed workspace roots"):
+    # Update the match pattern for the more specific error message
+    match_pattern = r"Access denied: Path '.*?' resolves to '.*?' which is outside allowed local allowed roots defined by --allow-root."
+    with pytest.raises(PermissionError, match=match_pattern):
         await notebook_ops.read_notebook(dummy_path, allowed_roots)
 
 @pytest.mark.asyncio
 async def test_read_notebook_invalid_extension(tmp_path):
-    """Test read_notebook rejects non-notebook files."""
+    """Test read_notebook rejects non-notebook files by extension."""
     dummy_path = tmp_path / "not_a_notebook.txt"
     dummy_path.touch()
     allowed_roots = [str(tmp_path)]
     
-    with pytest.raises(ValueError, match="Invalid file type: .* must point to a .ipynb file"):
+    # Adjust the regex to match the exact error message format
+    with pytest.raises(ValueError, match=r"Invalid notebook path: '.*not_a_notebook\.txt'"):
         await notebook_ops.read_notebook(str(dummy_path), allowed_roots)
 
 @pytest.mark.asyncio
-async def test_write_notebook_non_absolute_path():
-    """Test write_notebook rejects non-absolute paths."""
-    non_abs_path = "relative/path/notebook.ipynb"
-    allowed_roots = ["/valid/root"]
+async def test_write_notebook_non_absolute_path(tmp_path):
+    """Test write_notebook correctly resolves relative paths within allowed roots."""
+    allowed_roots = [str(tmp_path)]
+    relative_path = "subdir/my_write_notebook.ipynb" # Relative path
+    absolute_path = tmp_path / relative_path
     nb = nbformat.v4.new_notebook()
-    
-    with pytest.raises(ValueError, match="Invalid notebook path: Only absolute paths are allowed for writing"):
-        await notebook_ops.write_notebook(non_abs_path, nb, allowed_roots)
+
+    # Ensure path doesn't exist initially
+    if absolute_path.exists():
+        absolute_path.unlink()
+    if absolute_path.parent.exists():
+        absolute_path.parent.rmdir()
+    assert not absolute_path.exists()
+    assert not absolute_path.parent.exists()
+
+    # Write using the relative path
+    try:
+        await notebook_ops.write_notebook(relative_path, nb, allowed_roots)
+        # Verify file was created at the correct absolute path
+        assert absolute_path.exists()
+        # Verify content is valid notebook (basic check)
+        nb_read = nbformat.read(str(absolute_path), as_version=4)
+        assert isinstance(nb_read, nbformat.NotebookNode)
+    except Exception as e:
+        pytest.fail(f"Write with relative path failed unexpectedly: {e}")
+    finally:
+        # Clean up
+        if absolute_path.exists():
+            absolute_path.unlink()
+        if absolute_path.parent.exists():
+             try: 
+                 absolute_path.parent.rmdir()
+             except OSError:
+                 pass
 
 @pytest.mark.asyncio
 async def test_write_notebook_outside_allowed_roots(tmp_path):
     """Test write_notebook rejects paths outside allowed roots."""
-    dummy_path = "/some/path/outside/notebook.ipynb"
+    dummy_path = "/some/other/root/notebook.ipynb"
     allowed_roots = [str(tmp_path)]
     nb = nbformat.v4.new_notebook()
     
-    with pytest.raises(PermissionError, match="Access denied: Path .* is outside the allowed workspace roots"):
+    # Update the match pattern for the more specific error message
+    match_pattern = r"Access denied: Path '.*?' resolves to '.*?' which is outside allowed local allowed roots defined by --allow-root."
+    with pytest.raises(PermissionError, match=match_pattern):
         await notebook_ops.write_notebook(dummy_path, nb, allowed_roots)
 
 @pytest.mark.asyncio
 async def test_write_notebook_invalid_extension(tmp_path):
-    """Test write_notebook rejects non-notebook files."""
+    """Test write_notebook rejects non-notebook files by extension."""
     dummy_path = str(tmp_path / "not_a_notebook.txt")
     allowed_roots = [str(tmp_path)]
     nb = nbformat.v4.new_notebook()
     
-    with pytest.raises(ValueError, match="Invalid file type for writing: .* must point to a .ipynb file"):
+    # Adjust the regex to match the exact error message format
+    with pytest.raises(ValueError, match=r"Invalid notebook path for writing: '.*not_a_notebook\.txt'"):
         await notebook_ops.write_notebook(dummy_path, nb, allowed_roots)
 
 @pytest.mark.asyncio
@@ -248,8 +387,39 @@ async def test_write_notebook_parent_dir_creation_fails(tmp_path):
     nb = nbformat.v4.new_notebook()
     
     # Mock directory checks and creation to simulate failure
-    with mock.patch('os.path.isdir', return_value=False), \
-         mock.patch('os.makedirs', side_effect=OSError("Failed to create directory")):
-        
-        with pytest.raises(IOError, match="Could not create directory for notebook .* Failed to create directory"):
+    # Mocking os.makedirs is correct here as it's called for local writes
+    with mock.patch('os.makedirs', side_effect=OSError("Failed to create directory")):
+        # Adjust regex to match the actual IOError message from the wrapper
+        with pytest.raises(IOError, match=r"Could not create local directory.*?Failed to create directory"):
             await notebook_ops.write_notebook(str(dummy_path), nb, allowed_roots)
+
+# Removed test_read_notebook_remote_path as its functionality is covered by the version in tests/test_notebook_ops_isolated.py
+# @pytest.mark.asyncio
+# async def test_read_notebook_remote_path(mock_sftp_operations):
+#     """Test reading a notebook from a remote path via SFTP."""
+#     remote_path = "ssh://user@hostname:/path/to/notebook.ipynb"
+#     allowed_roots = ["/some/root"]
+    
+#     # Mock path resolution to return a permitted path
+#     with mock.patch('cursor_notebook_mcp.notebook_ops.resolve_path_and_check_permissions', 
+#                     return_value=(True, "/remote/path/notebook.ipynb")):
+#         await notebook_ops.read_notebook(remote_path, allowed_roots, sftp_manager=mock_sftp_operations)
+    
+#     # Verify SFTPManager was used correctly
+#     mock_sftp_operations.read_file.assert_called_once()
+
+# Removed: test_write_notebook_remote_path - Kept in tests/test_notebook_ops_isolated.py as it handles SFTP/paramiko mocking.
+# @pytest.mark.asyncio
+# async def test_write_notebook_remote_path(mock_sftp_operations):
+#     """Test writing a notebook to a remote path via SFTP."""
+#     remote_path = "ssh://user@hostname:/path/to/notebook.ipynb"
+#     allowed_roots = ["/some/root"]
+#     nb = nbformat.v4.new_notebook()
+#     
+#     # Mock path resolution to return a permitted path
+#     with mock.patch('cursor_notebook_mcp.notebook_ops.resolve_path_and_check_permissions', 
+#                     return_value=(True, "/remote/path/notebook.ipynb")):
+#         await notebook_ops.write_notebook(remote_path, nb, allowed_roots, sftp_manager=mock_sftp_operations)
+#     
+#     # Verify SFTPManager was used correctly
+#     mock_sftp_operations.write_file.assert_called_once()

@@ -1,5 +1,5 @@
 [Unit]
-Description=Cursor Notebook MCP Server (SSE Mode)
+Description=Cursor Notebook MCP Server (Streamable HTTP Mode)
 After=network.target
 
 [Service]
@@ -15,15 +15,15 @@ Group=yourgroup
 
 # Option 1: Use direct path to the installed script in venv (Recommended if installed)
 # Replace /path/to/venv and /path/to/notebooks
-ExecStart=/path/to/venv/bin/cursor-notebook-mcp --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
+ExecStart=/path/to/venv/bin/cursor-notebook-mcp --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
 
 # Option 2: Use direct path to Python and the source script
 # Replace /path/to/venv, /path/to/project, and /path/to/notebooks
-# ExecStart=/path/to/venv/bin/python /path/to/project/notebook_mcp_server.py --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
+ExecStart=/path/to/venv/bin/python -m cursor_notebook_mcp.server --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks
 
 # Option 3: Use bash to source the environment first (Less common)
 # Replace /path/to/venv and /path/to/notebooks
-# ExecStart=/bin/bash -c 'source /path/to/venv/bin/activate && cursor-notebook-mcp --transport sse --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks'
+ExecStart=/bin/bash -c 'source /path/to/venv/bin/activate && cursor-notebook-mcp --transport streamable-http --host 127.0.0.1 --port 8080 --allow-root /path/to/notebooks'
 
 # Recommended: Set restart policy
 Restart=on-failure

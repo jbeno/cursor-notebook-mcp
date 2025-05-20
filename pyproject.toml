@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cursor-notebook-mcp"
-version = "0.2.4"
+version = "0.3.0"
 authors = [
   { name="Jim Beno", email="jim@jimbeno.net" },
 ]
@@ -18,7 +18,7 @@ classifiers = [
     "Framework :: Jupyter",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -37,21 +37,22 @@ dependencies = [
     "nbconvert>=6.0",
     "ipython",
     "jupyter_core",
-]
-
-[project.optional-dependencies]
-sse = [
+    "paramiko>=2.8.0",
+    "fastmcp>=2.3.4",
     "uvicorn>=0.20.0",
     "starlette>=0.25.0"
 ]
+
+[project.optional-dependencies]
 test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.18",
     "pytest-cov",
+    "pytest-timeout>=2.0.0",
     "coveralls",
 ]
 dev = [
-    "cursor-notebook-mcp[sse,test]"
+    "cursor-notebook-mcp[test]"
 ]
 
 [project.urls]
@@ -70,6 +71,7 @@ addopts = "--cov=cursor_notebook_mcp --cov-report=term-missing -m 'not slow'"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+timeout = 60
 
 [tool.coverage.run]
 source = ["cursor_notebook_mcp"]
