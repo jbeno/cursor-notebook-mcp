@@ -4,27 +4,35 @@
 
 This directory contains a Model Context Protocol (MCP) server designed to allow AI agents **within Cursor** to interact with Jupyter Notebook (`.ipynb`) files. It was created to overcome a limitation with Cursor. As of version 0.50.5, in Agent mode, the model could not edit notebooks or notebook cells in response to dialog in the AI chat pane. This provides the agent with a suite of MCP tools that allow direct notebook cell manipulation.
 
-I'm sure at some point this will be handled natively by Cursor, but I have a data science background, and I live in Jupyter notebooks. I got tired of copy/paste-ing output of the chat manually into the notebook cells.
-
 Although designed to overcome a limitation with Cursor, this MCP server does not have anything specific to Cursor other than the configuration instructions. You could easily configure this for use with VS Code (Insiders) or Claude Code or any model/agent that can take advantage of MCP. Note that VS Code (Insiders) has pretty good Jupyter Notebook support now.
 
 This MCP server uses the `nbformat` library to safely manipulate notebook structures and enforces security by restricting operations to user-defined directories. It also uses `nbconvert` to enable exporting notebooks to various formats like Python scripts, HTML, and more. The server handles all notebook operations through a clean API that maintains notebook integrity and prevents malformed changes.
 
+## Latest Version
+
+**Current Version:** `0.3.0` - See the [CHANGELOG.md](CHANGELOG.md) for details on recent changes. Key additions include SFTP support, Streamable HTTP transport, and new tools like `notebook_edit_cell_output`, `notebook_bulk_add_cells`, and `notebook_get_server_path_context` to improve notebook editing and path handling.
+
 ## Video Walkthrough
+
+### [Notebook MCP Server 0.3.0 Update](https://youtu.be/R3TGyuej-IM) (YouTube)
+
+[![Latest Version Thumbnail](https://img.youtube.com/vi/R3TGyuej-IM/maxresdefault.jpg)](https://youtu.be/R3TGyuej-IM)
+
+* Updates in the **0.3.0 release**, overview of new tools
+* FastMCP upgrade with **streamable HTTP transport**
+* **SFTP support** for editing Jupyter notebooks on remote SSH servers,
+* Issue resolution (#2, #4, #5) plus known issues (#1, #3)
+
+### [Overview of Notebook MCP Server](https://youtu.be/VOVMH-tle14) (YouTube) 
 
 [![Video Walkthrough Thumbnail](https://img.youtube.com/vi/VOVMH-tle14/maxresdefault.jpg)](https://youtu.be/VOVMH-tle14)
 
-[Cursor Jupyter Notebook MCP Server](https://youtu.be/VOVMH-tle14) (YouTube) walks through:
   - The current **limitations** of editing notebooks directly in Cursor.
   - **Installing** and **configuring** the Notebook MCP Server.
   - **Creating a notebook** from scratch (example shown: Singular Value Decomposition tutorial in less than 2 minutes).
   - Demonstrating various **editing tools** (edit, split, duplicate cells).
   - Reading notebook **metadata**.
   - **Exporting** notebooks to python
-
-## Latest Version
-
-**Current Version:** `0.3.0` - See the [CHANGELOG.md](CHANGELOG.md) for details on recent changes. Key additions include SFTP support, Streamable HTTP transport, and new tools like `notebook_edit_cell_output`, `notebook_bulk_add_cells`, and `notebook_get_server_path_context` to improve notebook editing and path handling.
 
 ## Features
 

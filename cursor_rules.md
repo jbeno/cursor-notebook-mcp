@@ -40,3 +40,7 @@
    * Use `!command` for shell commands (not `%%bash`).
    * Matplotlib, Pandas, and HTML in markdown render correctly.
    * Avoid `%%writefile` and similar unsupported magics.
+
+8. **Visibility Mode (Less Waiting):**
+   * Optimize for visibility and transparency during long edits
+   * Create notebooks and make edits with incremental tool calls
