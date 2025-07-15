@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cursor-notebook-mcp"
-version = "0.3.0"
+version = "0.3.1"
 authors = [
   { name="Jim Beno", email="jim@jimbeno.net" },
 ]
@@ -38,7 +38,7 @@ dependencies = [
     "ipython",
     "jupyter_core",
     "paramiko>=2.8.0",
-    "fastmcp>=2.3.4",
+    "fastmcp>=2.10.5",
     "uvicorn>=0.20.0",
     "starlette>=0.25.0"
 ]
