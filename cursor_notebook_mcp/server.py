@@ -128,7 +128,7 @@ class ServerConfig:
     port: int
     sftp_manager: Any = None
     raw_sftp_specs: List[str] = [] # Added to store original --sftp-root args
-    version: str = "0.3.0" # Dynamic version injected at build time or read from __init__
+    version: str = "0.3.1" # Dynamic version injected at build time or read from __init__
 
     def __init__(self, args: argparse.Namespace):
         self.log_dir = args.log_dir

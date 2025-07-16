@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1] - 2025-07-15
 ### Fixed
-- compatibility with newer versions of fastmcp
-- bumped fastmcp dependency version to 2.10.5
+- Compatibility with breaking changes introduced in FastMCP 2.7.0
+- Changed FastMCP dependency version to `fastmcp>=2.7.0,<2.11`
 
 ## [0.3.0] - 2025-05-20
 

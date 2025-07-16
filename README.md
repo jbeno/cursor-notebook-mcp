@@ -10,7 +10,7 @@ This MCP server uses the `nbformat` library to safely manipulate notebook struct
 
 ## Latest Version
 
-**Current Version:** `0.3.0` - See the [CHANGELOG.md](CHANGELOG.md) for details on recent changes. Key additions include SFTP support, Streamable HTTP transport, and new tools like `notebook_edit_cell_output`, `notebook_bulk_add_cells`, and `notebook_get_server_path_context` to improve notebook editing and path handling.
+**Current Version:** `0.3.1` - See the [CHANGELOG.md](CHANGELOG.md) for details on recent changes. Key additions include SFTP support, Streamable HTTP transport, and new tools like `notebook_edit_cell_output`, `notebook_bulk_add_cells`, and `notebook_get_server_path_context` to improve notebook editing and path handling.
 
 ## Video Walkthrough
 
