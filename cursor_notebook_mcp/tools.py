@@ -20,6 +20,8 @@ import posixpath
 import nbformat
 from nbformat import NotebookNode
 
+from fastmcp.tools.tool import Tool
+
 from . import notebook_ops
 
 logger = logging.getLogger(__name__)
@@ -89,7 +91,7 @@ class NotebookTools:
         for tool_method in tools_to_register:
             # Use the method's name and docstring for registration
             if hasattr(self.mcp, 'add_tool'):
-                self.mcp.add_tool(tool_method)
+                self.mcp.add_tool(Tool.from_function(tool_method))
             elif hasattr(self.mcp, 'tool') and callable(self.mcp.tool):
                 # If add_tool doesn't exist, try applying the .tool() decorator programmatically
                 # This assumes tool_method already has the correct signature and docstring
